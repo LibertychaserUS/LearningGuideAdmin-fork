@@ -10,6 +10,7 @@ import { configureApp } from './common/app-setup';
 import { accessLog } from './common/access-log';
 import {
   readBuildVersion,
+  registerMissingAssetRoute,
   registerVersionRoute,
   setNoStore,
   withBuildMeta,
@@ -42,6 +43,8 @@ function serveBackOfficeUi(app: NestExpressApplication) {
   const buildVersion = readBuildVersion(clientDir);
   const indexHtml = withBuildMeta(readFileSync(indexFile, 'utf8'), buildVersion);
   registerVersionRoute(express, buildVersion);
+  // 静态目录里没有的资源回 404，绝不回 index.html（否则浏览器把 HTML 当脚本，白屏）。
+  registerMissingAssetRoute(express);
   express.get(/^\/(?!api(?:\/|$)|health$).*/, (_req, res: any) => {
     setNoStore(res);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');

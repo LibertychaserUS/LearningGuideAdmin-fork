@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   BUILD_META_NAME,
+  isStaticAssetPath,
   readBuildVersion,
+  registerMissingAssetRoute,
   registerVersionRoute,
   setNoStore,
   withBuildMeta,
@@ -119,11 +121,14 @@ describe('route ordering against the SPA fallback', () => {
     const express = require('express');
     dir = mkdtempSync(join(tmpdir(), 'lg-route-'));
     writeFileSync(join(dir, 'index.html'), '<html><head></head><body><div id="root"></div></body></html>');
+    mkdirSync(join(dir, 'assets'));
+    writeFileSync(join(dir, 'assets', 'index-NEW.js'), 'console.log(1)');
     const version = readBuildVersion(dir);
 
     const app = express();
     app.use(express.static(dir, { index: false }));
     registerVersionRoute(app as never, version);
+    registerMissingAssetRoute(app as never);
     app.get(/^\/(?!api(?:\/|$)|health$).*/, (_req, res: never) => {
       const out = res as unknown as { setHeader: (n: string, v: string) => void; sendFile: (p: string) => void };
       setNoStore(out as never);
@@ -155,5 +160,53 @@ describe('route ordering against the SPA fallback', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('id="root"');
     expect(response.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('still serves an asset that exists', async () => {
+    const response = await fetch(`${base}/assets/index-NEW.js`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('console.log(1)');
+  });
+
+  // 发布时新旧实例并存：取不到的哈希脚本若回成 index.html，浏览器会因 MIME 不对拒绝执行，整页白屏。
+  it.each([
+    '/assets/index-GONE.js',
+    '/assets/index-GONE.css',
+    '/assets/x/y.woff2',
+    '/sw.js',
+    '/main.mjs',
+    '/app.js.map',
+  ])(
+    'answers a missing asset %s with a non-cacheable 404, never the SPA document',
+    async (path) => {
+      const response = await fetch(`${base}${path}`);
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-type')).not.toContain('text/html');
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      expect(await response.text()).not.toContain('id="root"');
+    },
+  );
+});
+
+describe('isStaticAssetPath', () => {
+  it.each([
+    '/assets/index-abc.js',
+    '/assets/a.css',
+    '/assets/font.woff2',
+    '/x.mjs',
+    '/x.js.map',
+  ])('treats %s as an asset', (path) => {
+    expect(isStaticAssetPath(path)).toBe(true);
+  });
+  it.each([
+    '/',
+    '/zh-CN/help-desk',
+    '/zh-CN/help-desk/0b5c3f8e-1d2a-4c6b-9e7f-123456789abc',
+    '/en-GB/course/editor',
+    '/version.json',
+    '/api/files/notes.css',
+    '/api/assets/x.js',
+  ])('leaves app route %s to the SPA', (path) => {
+    expect(isStaticAssetPath(path)).toBe(false);
   });
 });

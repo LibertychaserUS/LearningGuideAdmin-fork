@@ -84,3 +84,44 @@ export interface VersionResponse {
   setHeader: (name: string, value: string) => unknown;
   end: (body: string) => unknown;
 }
+
+/**
+ * 找不到的前端静态文件一律 404（2026-10-31）。
+ *
+ * 之前 SPA 回退路由会把任何没命中的路径都回成 index.html（200、text/html）。
+ * 发布时新旧实例会短暂并存：新 index.html 引用的 `/assets/index-<新哈希>.js`
+ * 若落到还没下线的旧实例上，旧实例没有这个文件，于是把 HTML 当成 JS 回给浏览器，
+ * 浏览器拒绝执行（MIME 不对），整页空白。反过来，开着的旧页面去取旧哈希文件、
+ * 新实例上已经没有了，也一样。
+ *
+ * 回 404 之后浏览器能明确知道"脚本没取到"，入口文档里的启动守护
+ *（client/index.html 的 lg-boot-guard）会自动稍等再重新加载一次，而不是停在白屏。
+ * 只拦静态资源形态的路径：/assets/ 下的一切，以及 .js/.mjs/.css/.map 结尾的路径；
+ * 前端路由（/zh-CN/help-desk/:ticketId 等）不带这些后缀，不受影响。
+ * /api 一律放行：这个路由注册在 Nest 控制器之前，不能挡住像 /api/files/x.css 这样的下载。
+ */
+export const MISSING_ASSET_PATTERN =
+  /^(?!\/api(?:\/|$))(?:\/assets\/|.*\.(?:m?js|css|map)$)/i;
+
+export function isStaticAssetPath(path: string): boolean {
+  return MISSING_ASSET_PATTERN.test(path);
+}
+
+export function registerMissingAssetRoute(express: {
+  get: (
+    path: RegExp,
+    handler: (req: unknown, res: MissingAssetResponse) => void,
+  ) => unknown;
+}): void {
+  express.get(MISSING_ASSET_PATTERN, (_req, res) => {
+    // 404 也不许缓存：几秒后新实例上就有这个文件了。
+    setNoStore(res);
+    res.status(404);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('Not found');
+  });
+}
+
+export interface MissingAssetResponse extends VersionResponse {
+  status: (code: number) => unknown;
+}

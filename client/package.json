@@ -13,6 +13,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:e2e:helpdesk": "node --test e2e/helpdesk-figma.e2e.test.mjs e2e/helpdesk-candidate-review.e2e.test.mjs e2e/helpdesk-data-charts.e2e.test.mjs e2e/helpdesk-faq-review.e2e.test.mjs",
+    "test:e2e:boot": "vite build && node --test e2e/boot-guard.e2e.test.mjs",
     "test": "node --experimental-strip-types --import ./tests/support/register.mjs --test \"tests/**/*.test.ts\" \"tests/**/*.test.tsx\""
   },
   "dependencies": {

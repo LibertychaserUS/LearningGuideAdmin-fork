@@ -2,6 +2,75 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      启动守护 lg-boot-guard（2026-10-31，HelpDesk 发布后白屏）：必须是入口文档里第一段脚本，且是内联的。
+      发布时新旧实例短暂并存，入口文档引用的带哈希脚本/样式可能取不到（404），或者开着的旧页面去取已经下线的旧文件。
+      以前这时什么都不显示，只能强刷。现在：脚本或样式取不到、按需加载的代码块取不到、或者加载完 8 秒 #root 还是空的，
+      就稍等后自动重新加载（1s、3s、8s、20s，最多 4 次，记在 sessionStorage，不会死循环）；仍不行就显示一段说明和「重新加载」按钮，不再是白屏。
+      页面正常显示后清零。逻辑由 e2e/boot-guard.e2e.test.mjs 锁住。
+    -->
+    <script id="lg-boot-guard">
+      ;(function () {
+        var KEY = 'lg.boot-retry'
+        var DELAYS = [1000, 3000, 8000, 20000]
+        var WINDOW_MS = 120000
+        var scheduled = false
+        function read() {
+          try { return JSON.parse(sessionStorage.getItem(KEY) || 'null') } catch (e) { return null }
+        }
+        function write(v) {
+          try { sessionStorage.setItem(KEY, JSON.stringify(v)) } catch (e) { /* 隐私模式：照样重试一次 */ }
+        }
+        function clear() {
+          try { sessionStorage.removeItem(KEY) } catch (e) { /* ignore */ }
+        }
+        function showMessage() {
+          var root = document.getElementById('root')
+          if (!root) return
+          var en = /^\/en-GB(\/|$)/.test(location.pathname)
+          root.innerHTML =
+            '<div data-lg-boot-failed style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif">' +
+            '<div style="max-width:420px;padding:32px;background:#fff;border:1px solid #e8edf5;border-radius:12px;text-align:center;color:#1f2937">' +
+            '<p style="margin:0 0 8px;font-size:16px;font-weight:600">' + (en ? 'The page did not finish loading' : '页面没有加载完整') + '</p>' +
+            '<p style="margin:0 0 20px;font-size:14px;color:#6b7280;line-height:1.6">' +
+            (en ? 'A new version is probably being published. Please wait a few seconds and reload.' : '可能刚好在发布新版本，请稍等几秒再重新加载。') + '</p>' +
+            '<button type="button" style="padding:8px 20px;border:0;border-radius:8px;background:#1d6bff;color:#fff;font-size:14px;cursor:pointer">' +
+            (en ? 'Reload' : '重新加载') + '</button></div></div>'
+          root.querySelector('button').onclick = function () { clear(); location.reload() }
+        }
+        function recover() {
+          if (scheduled) return
+          scheduled = true
+          var now = Date.now()
+          var state = read()
+          if (!state || now - state.at > WINDOW_MS) state = { n: 0, at: now }
+          if (state.n >= DELAYS.length) { showMessage(); return }
+          var delay = DELAYS[state.n]
+          write({ n: state.n + 1, at: now })
+          setTimeout(function () { location.reload() }, delay)
+        }
+        window.__lgBootRecover = recover
+        // 资源加载失败不冒泡，只能在捕获阶段拿到（脚本 404、或拿到的是 HTML 而不是 JS 都会触发）。
+        window.addEventListener('error', function (event) {
+          var el = event.target
+          if (!el || el === window || !el.tagName) return
+          if (el.tagName === 'SCRIPT' || (el.tagName === 'LINK' && /stylesheet|modulepreload/.test(el.rel || ''))) recover()
+        }, true)
+        // Vite 按需加载的代码块取不到时发出的事件（以后拆包也能兜住）。
+        window.addEventListener('vite:preloadError', function (event) {
+          event.preventDefault()
+          recover()
+        })
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            if (scheduled) return
+            var root = document.getElementById('root')
+            if (root && !root.firstChild) recover()
+            else clear()
+          }, 8000)
+        })
+      })()
+    </script>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
