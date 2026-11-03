@@ -142,9 +142,12 @@ const input = (
 const fixed = () => new Date('2026-11-03T10:00:00.000Z');
 
 describe('the live-pipeline sample: which questions', () => {
-  it('ships the S650 dev split only (1,367 generated questions, never the test split)', () => {
+  it('ships the eval-v6 dev split only (275 blind + 1,409 S650 questions for library v3.5, never the test split)', () => {
     const all = loadReleaseEvalItems();
-    expect(all).toHaveLength(1367);
+    expect(all).toHaveLength(1684);
+    expect(all.filter((item) => item.set === 'blind')).toHaveLength(275);
+    expect(all.filter((item) => item.set === 's650')).toHaveLength(1409);
+    expect(new Set(all.map((item) => item.id)).size).toBe(all.length);
     expect(new Set(all.map((item) => item.expect))).toEqual(
       new Set(['answer', 'no_match', 'smalltalk']),
     );
@@ -153,6 +156,7 @@ describe('the live-pipeline sample: which questions', () => {
         Object.keys(item).every((k) =>
           [
             'id',
+            'set',
             'locale',
             'style',
             'message',
@@ -229,6 +233,45 @@ describe('the live-pipeline sample: which questions', () => {
       ['changed', 'a3'],
       ['regression', 'regression-1'],
     ]);
+  });
+});
+
+describe('the live-pipeline sample: blind share', () => {
+  it('takes half of the fixed sample from the blind set and fills the rest from S650', () => {
+    const blind = items
+      .filter((item) => item.faq !== 'not-in-this-library')
+      .map((item) => ({
+        ...item,
+        id: `b-${item.id}`,
+        message: `${item.message} ?`,
+        set: 'blind' as const,
+      }));
+    const mixed = [
+      ...items.map((item) => ({ ...item, set: 's650' as const })),
+      ...blind,
+    ];
+    const { cases } = selectModelEvalCases({
+      items: mixed,
+      snapshot,
+      changed: new Set(),
+      regression: [],
+      limits: { sampleSize: 4 },
+    });
+    expect(cases.filter((c) => c.id.startsWith('b-'))).toHaveLength(2);
+    expect(cases.filter((c) => !c.id.startsWith('b-'))).toHaveLength(2);
+    // 盲出题不够时由 S650 补满
+    const few = selectModelEvalCases({
+      items: [
+        ...items.map((item) => ({ ...item, set: 's650' as const })),
+        blind[0],
+      ],
+      snapshot,
+      changed: new Set(),
+      regression: [],
+      limits: { sampleSize: 4 },
+    });
+    expect(few.cases.filter((c) => c.id.startsWith('b-'))).toHaveLength(1);
+    expect(few.cases).toHaveLength(4);
   });
 });
 

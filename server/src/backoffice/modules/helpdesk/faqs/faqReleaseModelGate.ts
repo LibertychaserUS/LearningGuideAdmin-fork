@@ -21,9 +21,13 @@ import type {
  * 契约 helpdesk-release-eval.ts）在候选版本上问一遍，按标注的卡自动判分：
  *
  * 问题从哪来（每个问题只问一次，按原文去重）：
- * 1. 固定抽样：S650 开发集（release-eval/s650-dev.jsonl，1,367 条，按卡生成并复核过的单句问题，含不该出卡的）里
- *    按 id 的 SHA-256 排序取前 sampleSize 条（缺省 300）。每一版抽到的是同一批（标的卡这一版里没有的跳过），
- *    所以和上一版的错卡率可以直接比。测试集（test）不进来，只留给报告；
+ * 1. 固定抽样：开发集 release-eval/eval-v6-dev.jsonl（2026-11-03，按 FAQ 库 v3.5 的 685 张卡重标）有两部分：
+ *    - blind（盲出题，237+38 条）：出题的模型只看到用户情境和产品介绍、没见过卡片，用用户的口气写；
+ *      两个模型各自独立标卡，分歧由第三个更强的模型裁定；看不出指哪张卡的（vague）不收；
+ *    - s650（1,409 条）：按卡生成并复核过的单句问题（含不该出卡的），新卡补了题，答案改过的卡重核过。
+ *    各自按 id 的 SHA-256 排序，取 blind 的前 sampleSize × blindShare 条（缺省 150），其余从 s650 补满 sampleSize（缺省 300）。
+ *    每一版抽到的是同一批（标的卡这一版里没有的跳过），所以和上一版的错卡率可以直接比。测试集（test）不进来，只留给报告；
+ *    以后用数据飞轮里真实用户的原话替换 blind；
  * 2. 这一版改了的卡：和上线版本比，新增或改过的卡在开发集里的全部问题（至多 changedMax 条）；
  * 3. 回归用例：员工从数据飞轮接受过的、脱敏过的用户原话（标着选定的卡，至多 regressionMax 条）。
  *
@@ -39,6 +43,8 @@ import type {
 
 export const MODEL_GATE = {
   sampleSize: 300,
+  /** 固定抽样里盲出题（blind）占的比例。 */
+  blindShare: 0.5,
   changedMax: 200,
   regressionMax: 100,
   wrongRateMax: 0.02,
@@ -57,6 +63,8 @@ export type ModelGateLimits = { [K in keyof typeof MODEL_GATE]: number };
 
 export type ReleaseEvalItem = {
   id: string;
+  /** blind = 盲出题；s650 = 按卡生成。没写当 s650。 */
+  set?: 'blind' | 's650';
   locale: string;
   style?: string | null;
   message: string;
@@ -86,7 +94,7 @@ export type ModelEvalMiss = {
   got: string;
 };
 
-const DEFAULT_SET = join(__dirname, 'release-eval', 's650-dev.jsonl');
+const DEFAULT_SET = join(__dirname, 'release-eval', 'eval-v6-dev.jsonl');
 
 /** 读开发集（一行一个 JSON）。 */
 export function loadReleaseEvalItems(path = DEFAULT_SET): ReleaseEvalItem[] {
@@ -151,7 +159,10 @@ export function selectModelEvalCases(input: {
   changed: Set<string>;
   regression: FaqRegressionCase[];
   limits?: Partial<
-    Pick<ModelGateLimits, 'sampleSize' | 'changedMax' | 'regressionMax'>
+    Pick<
+      ModelGateLimits,
+      'sampleSize' | 'blindShare' | 'changedMax' | 'regressionMax'
+    >
   >;
 }): { cases: ModelEvalCase[]; skipped: number } {
   const limits: ModelGateLimits = { ...MODEL_GATE, ...input.limits };
@@ -201,7 +212,16 @@ export function selectModelEvalCases(input: {
   const ordered = [...usable].sort((a, b) =>
     sha(a.id) < sha(b.id) ? -1 : sha(a.id) > sha(b.id) ? 1 : 0,
   );
-  for (const item of ordered.slice(0, limits.sampleSize))
+  const blind = ordered.filter((item) => item.set === 'blind');
+  const generated = ordered.filter((item) => item.set !== 'blind');
+  const blindTake = Math.min(
+    blind.length,
+    Math.round(limits.sampleSize * limits.blindShare),
+  );
+  for (const item of [
+    ...blind.slice(0, blindTake),
+    ...generated.slice(0, limits.sampleSize - blindTake),
+  ])
     add(toCase(item, 'sample'));
   const changedIds = new Set(
     [...input.changed]
