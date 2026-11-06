@@ -117,12 +117,15 @@ describe('FAQ release eval gate', () => {
           // 不是入口（检索不到）/ 这一版没有的节点：跳过，不算错
           { faqId: 'c', locale: 'en-GB', text: 'x' },
           { faqId: 'gone', locale: 'zh-CN', text: 'y' },
+          // a's own phrasing (問題甲) again, in simplified script: a leak, not asked
+          { faqId: 'a', locale: 'zh-CN', text: '问题甲。' },
         ]),
     }).evaluate({ version: 3, snapshot, previous: null });
     expect(report.metrics).toMatchObject({
       cases: 7,
       regressionCases: 2,
       regressionSkipped: 2,
+      regressionLeaked: 1,
     });
     expect(report.misses).toEqual([
       expect.objectContaining({

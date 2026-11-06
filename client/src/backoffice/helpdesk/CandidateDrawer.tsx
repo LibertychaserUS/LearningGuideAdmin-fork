@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import {
   CANDIDATE_LIMITS,
   DISMISS_REASONS,
+  phrasingsFromPicks,
   type AcceptCandidateBody,
   type CandidateDetail,
   type CandidateRevision,
@@ -241,9 +242,12 @@ export function CandidateDrawer({ locale, candidateId, canWrite, onClose, onChan
       body,
       (key) => acceptCandidate(candidate.id, body, key),
       (data) =>
-        data.phrasingsAdded === 1
-          ? t(locale, 'helpDesk.candidates.addedOne', { skipped: data.phrasingsSkipped })
-          : t(locale, 'helpDesk.candidates.addedMany', { added: data.phrasingsAdded, skipped: data.phrasingsSkipped }),
+        [
+          data.phrasingsAdded === 1
+            ? t(locale, 'helpDesk.candidates.addedOne', { skipped: data.phrasingsSkipped })
+            : t(locale, 'helpDesk.candidates.addedMany', { added: data.phrasingsAdded, skipped: data.phrasingsSkipped }),
+          ...((data.heldOut ?? 0) > 0 ? [t(locale, 'helpDesk.candidates.heldOut', { held: data.heldOut ?? 0 })] : []),
+        ].join(' '),
     )
   }
 
@@ -522,9 +526,9 @@ export function CandidateDrawer({ locale, candidateId, canWrite, onClose, onChan
                   >
                     {busy
                       ? t(locale, 'helpDesk.candidates.saving')
-                      : picks.length === 1
+                      : phrasingsFromPicks(picks.length) === 1
                         ? t(locale, 'helpDesk.candidates.addPhrasingsOne')
-                        : t(locale, 'helpDesk.candidates.addPhrasingsMany', { count: picks.length })}
+                        : t(locale, 'helpDesk.candidates.addPhrasingsMany', { count: phrasingsFromPicks(picks.length) })}
                   </button>
                   <button type="button" className="hdDrawerButton" disabled={busy} onClick={closeForm}>
                     {t(locale, 'helpDesk.candidates.cancel')}

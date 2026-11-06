@@ -1,5 +1,6 @@
 import type { FaqRepository } from './faqRepository';
 import type { FaqReleaseSnapshot } from './faqRelease';
+import { toSimplified } from './faqSearchText';
 
 /**
  * 发布前的评测门（helpdesk-v5-faq-graph-design §2.2「发布新版本」、v5 Part G5）：新建版本时，
@@ -159,14 +160,45 @@ function previousRecall(
   return recallOf(previous?.evalReport);
 }
 
+/** 比较用的文字：繁转简、小写、去掉空白与标点（「怎么退款？」与「怎麼退款」算同一句）。 */
+function sameTextKey(text: string): string {
+  return toSimplified(text.normalize('NFKC'))
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+/**
+ * 回归题「泄漏」：这句话就是它那张卡自己的问题或问法（owner 2026-11-06「数据飞轮可能过拟合」）。
+ * 检查拿卡里的原句考它自己必然命中，所以不计分，单独数（regressionLeaked）。2026-11-06 之前接受的候选
+ * 把勾选的例句同时加成了问法和回归题，这些都会在这里被认出来；之后接受的已经分开（splitForEval）。
+ */
+export function regressionLeakCheck(
+  snapshot: FaqReleaseSnapshot,
+): (item: Pick<FaqRegressionCase, 'faqId' | 'text'>) => boolean {
+  const own = new Set<string>();
+  const add = (faqId: string, text: string) => {
+    const key = sameTextKey(text);
+    if (key !== '') own.add(`${faqId}\n${key}`);
+  };
+  for (const node of snapshot.nodes) {
+    add(node.id, node.questionEn);
+    add(node.id, node.questionZh);
+  }
+  for (const phrasing of snapshot.phrasings) add(phrasing.faqId, phrasing.text);
+  return (item) => own.has(`${item.faqId}\n${sameTextKey(item.text)}`);
+}
+
 /**
  * 回归用例 → 检索用例：只算这一版里检索得到的节点（入口 answer）；别的（节点归档了、不是入口）跳过，
- * 计在 regressionSkipped 里（不算错：那条路径由问题树检查管）。
+ * 计在 regressionSkipped 里（不算错：那条路径由问题树检查管）。就是卡自己的问题或问法的（泄漏）不算，
+ * 计在 regressionLeaked 里（那句问法本身已经作为 phrasing 用例检查过）。
  */
 export function regressionEvalCases(
   snapshot: FaqReleaseSnapshot,
   regression: readonly FaqRegressionCase[],
-): { cases: FaqReleaseEvalCase[]; skipped: number } {
+): { cases: FaqReleaseEvalCase[]; skipped: number; leaked: number } {
+  const leaks = regressionLeakCheck(snapshot);
+  let leaked = 0;
   const keys = new Map(
     snapshot.nodes
       .filter((node) => node.entry && node.type === 'answer')
@@ -180,6 +212,10 @@ export function regressionEvalCases(
       skipped += 1;
       continue;
     }
+    if (leaks(item)) {
+      leaked += 1;
+      continue;
+    }
     cases.push({
       nodeId: item.faqId,
       key,
@@ -188,7 +224,7 @@ export function regressionEvalCases(
       text: item.text,
     });
   }
-  return { cases, skipped };
+  return { cases, skipped, leaked };
 }
 
 /**
@@ -267,6 +303,7 @@ export function createRetrievalGate(
             ? {
                 regressionCases: regression.cases.length,
                 regressionSkipped: regression.skipped,
+                regressionLeaked: regression.leaked,
               }
             : {}),
         },

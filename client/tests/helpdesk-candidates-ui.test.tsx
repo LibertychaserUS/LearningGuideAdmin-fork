@@ -444,19 +444,20 @@ describe('candidate detail', () => {
 describe('candidate actions (FULL)', () => {
   test('add phrasing: the ticked examples go to the closest FAQ, with the version and an Idempotency-Key', async () => {
     serve(refundGroup)
-    server.on('POST', ACCEPT, decide({ status: 'accepted', acceptedAs: 'add_phrasing', acceptedFaqId: REFUND }, { phrasingsAdded: 2, phrasingsSkipped: 0, evalCasesAdded: 3, edgeId: null }))
+    server.on('POST', ACCEPT, decide({ status: 'accepted', acceptedAs: 'add_phrasing', acceptedFaqId: REFUND }, { phrasingsAdded: 1, phrasingsSkipped: 0, evalCasesAdded: 1, heldOut: 1, edgeId: null }))
     await openQueue()
     const dialog = await openCandidate('Refund timing')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add phrasing' }))
     const target = within(dialog).getByRole('radio', { name: 'How do I get a refund?' }) as HTMLInputElement
     assert.equal(target.checked, true)
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 2 phrasings' }))
+    // 勾了 2 句：一句加成问法、一句只当发布检查题（服务端 splitForEval），按钮照实写 1 条
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 phrasing' }))
     await waitFor(() => assert.equal(server.callsTo('POST', ACCEPT).length, 1))
     const call = server.callsTo('POST', ACCEPT)[0]
     assert.equal(call.path, '/api/helpdesk/faq-candidates/c1/accept')
     assert.deepEqual(call.body, { as: 'add_phrasing', faqId: REFUND, phrasings: [0, 2], version: 1 })
     assert.match(call.idempotencyKey ?? '', /^[0-9a-f-]{36}$/)
-    assert.equal((await within(dialog).findByRole('status')).textContent, 'Added 2 phrasings (0 skipped). The ticked examples are now eval cases for this FAQ.')
+    assert.equal((await within(dialog).findByRole('status')).textContent, 'Added 1 phrasing (0 skipped). 1 more kept only as release-check questions, not as phrasings.')
     // 列表刷新：接受了的候选离开待处理队列
     await waitFor(() => absent(document.querySelector('.hdFaqTable tbody tr td button[aria-label="Review Refund timing"]')))
   })
@@ -510,7 +511,7 @@ describe('candidate actions (FULL)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 phrasing' }))
     await waitFor(() => assert.equal(server.callsTo('POST', ACCEPT).length, 1))
     assert.deepEqual(server.callsTo('POST', ACCEPT)[0].body, { as: 'add_phrasing', faqId: NEW_FAQ, phrasings: [2], version: 1 })
-    assert.equal((await within(dialog).findByRole('status')).textContent, 'Added 1 phrasing (1 skipped). The ticked examples are now eval cases for this FAQ.')
+    assert.equal((await within(dialog).findByRole('status')).textContent, 'Added 1 phrasing (1 skipped).')
   })
 
   test('dismiss needs a reason; "Other" needs a note', async () => {

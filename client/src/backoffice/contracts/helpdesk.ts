@@ -649,8 +649,15 @@ export type AcceptCandidateResult = {
   phrasingsAdded: number;
   phrasingsSkipped: number;
   evalCasesAdded: number;
+  /** 勾选的例句里只当发布检查题、没加成问法的句数（服务端 splitForEval：一句问法、一句检查题轮流）。 */
+  heldOut?: number;
   edgeId: string | null;
 };
+
+/** 勾选 n 句里会加成问法的句数（和服务端 splitForEval 一致：第 1、3、5… 句；只勾一句就是问法）。 */
+export function phrasingsFromPicks(n: number): number {
+  return n < 2 ? n : Math.ceil(n / 2);
+}
 
 /* ---------------- FAQ 候选审核（candidate-review/api-spec.md §2、§3、§5、§6） ---------------- */
 

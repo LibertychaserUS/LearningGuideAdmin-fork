@@ -240,6 +240,34 @@ describe('the live-pipeline sample: which questions', () => {
       ['changed', 'a3'],
       ['regression', 'regression-1'],
     ]);
+    expect(withChanged.leaked).toBe(0);
+  });
+
+  it("never asks a regression case that is its own card's question or phrasing (a leak), and counts it", () => {
+    const withPhrasing: FaqReleaseSnapshot = {
+      ...snapshot,
+      phrasings: [{ faqId: id(3), locale: 'zh-CN', text: '密码又忘了怎么办' }],
+    };
+    const { cases, leaked } = selectModelEvalCases({
+      items: [],
+      snapshot: withPhrasing,
+      changed: new Set(),
+      regression: [
+        // the phrasing itself, in traditional script and without the punctuation
+        { faqId: id(3), locale: 'zh-TW', text: '密碼又忘了 怎麼辦？' },
+        // the card's own question
+        { faqId: id(3), locale: 'en-GB', text: 'q password' },
+        // another card's phrasing is a fair question for this card
+        { faqId: id(1), locale: 'zh-CN', text: '密码又忘了怎么办' },
+        { faqId: id(3), locale: 'zh-CN', text: '登录不上了' },
+      ],
+      limits: { sampleSize: 0 },
+    });
+    expect(leaked).toBe(2);
+    expect(cases.map((c) => [c.faqId, c.message])).toEqual([
+      [id(1), '密码又忘了怎么办'],
+      [id(3), '登录不上了'],
+    ]);
   });
 });
 

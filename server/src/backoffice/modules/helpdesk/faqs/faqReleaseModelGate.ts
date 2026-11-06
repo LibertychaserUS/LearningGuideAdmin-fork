@@ -12,11 +12,12 @@ import type {
   ReleaseEvalLocale,
 } from '../../../../contracts/helpdesk-release-eval';
 import { diffSnapshots, type FaqReleaseSnapshot } from './faqRelease';
-import type {
-  FaqRegressionCase,
-  FaqReleaseEvalReport,
-  FaqReleaseGate,
-  FaqReleaseGateInput,
+import {
+  regressionLeakCheck,
+  type FaqRegressionCase,
+  type FaqReleaseEvalReport,
+  type FaqReleaseGate,
+  type FaqReleaseGateInput,
 } from './faqReleaseGate';
 
 /**
@@ -33,7 +34,8 @@ import type {
  *    每一版抽到的是同一批（标的卡这一版里没有的跳过），所以和上一版的错卡率可以直接比。测试集（test）不进来，只留给报告；
  *    以后用数据飞轮里真实用户的原话替换 blind；
  * 2. 这一版改了的卡：和上线版本比，新增或改过的卡在开发集里的全部问题（至多 changedMax 条）；
- * 3. 回归用例：员工从数据飞轮接受过的、脱敏过的用户原话（标着选定的卡，至多 regressionMax 条）。
+ * 3. 回归用例：员工从数据飞轮接受过的、脱敏过的用户原话（标着选定的卡，至多 regressionMax 条）；
+ *    就是那张卡自己的问题或问法的不问（泄漏，regressionLeaked，faqReleaseGate.ts 的 regressionLeakCheck）。
  *
  * 判分（和评测脚本 conversations.ts 同一份规则：contracts/helpdesk-eval-scoring.ts）：
  * - 期望出卡：出了标注的卡、也算对的卡（acceptable），或通向它的入口卡 → 对（入口卡单独数 viaEntry）；
@@ -171,8 +173,9 @@ export function selectModelEvalCases(input: {
       'sampleSize' | 'blindShare' | 'changedMax' | 'regressionMax'
     >
   >;
-}): { cases: ModelEvalCase[]; skipped: number } {
+}): { cases: ModelEvalCase[]; skipped: number; leaked: number } {
   const limits: ModelGateLimits = { ...MODEL_GATE, ...input.limits };
+  const leaks = regressionLeakCheck(input.snapshot);
   const idOfKey = new Map(input.snapshot.nodes.map((n) => [n.key, n.id]));
   const nodeIds = new Set(input.snapshot.nodes.map((n) => n.id));
   const ancestors = entryAncestors(input.snapshot);
@@ -241,22 +244,23 @@ export function selectModelEvalCases(input: {
     .filter((item) => item.gold.some((id) => changedIds.has(id)))
     .slice(0, limits.changedMax)
     .forEach((item) => add(toCase(item, 'changed')));
-  input.regression
-    .filter((one) => nodeIds.has(one.faqId))
-    .slice(0, limits.regressionMax)
-    .forEach((one, index) =>
-      add({
-        id: `regression-${index + 1}`,
-        source: 'regression',
-        locale: serviceLocale(one.locale),
-        message: one.text,
-        expect: 'answer',
-        faqId: one.faqId,
-        acceptable: [],
-        entryIds: entriesFor([one.faqId]),
-      }),
-    );
-  return { cases, skipped };
+  // 就是卡自己的问题或问法的回归题（泄漏）不问：拿原句考它自己必然命中，单独数
+  const present = input.regression.filter((one) => nodeIds.has(one.faqId));
+  const fair = present.filter((one) => !leaks(one));
+  const leaked = present.length - fair.length;
+  fair.slice(0, limits.regressionMax).forEach((one, index) =>
+    add({
+      id: `regression-${index + 1}`,
+      source: 'regression',
+      locale: serviceLocale(one.locale),
+      message: one.text,
+      expect: 'answer',
+      faqId: one.faqId,
+      acceptable: [],
+      entryIds: entriesFor([one.faqId]),
+    }),
+  );
+  return { cases, skipped, leaked };
 }
 
 export type ModelEvalScore = {
@@ -378,7 +382,7 @@ export function createModelReleaseGate(
       const regression = deps.regressionCases
         ? await deps.regressionCases().catch(() => [])
         : [];
-      const { cases, skipped } = selectModelEvalCases({
+      const { cases, skipped, leaked } = selectModelEvalCases({
         items,
         snapshot: input.snapshot,
         changed: changedKeys(input.previous?.snapshot, input.snapshot),
@@ -467,6 +471,7 @@ export function createModelReleaseGate(
         regressionCases: results.filter((r) => r.one.source === 'regression')
           .length,
         skippedCases: skipped,
+        regressionLeaked: leaked,
         wrongCards: wrong,
         wrongRate: Number(wrongRate.toFixed(4)),
         rightRate: Number(

@@ -182,6 +182,8 @@ export type AcceptResult = {
   phrasingsAdded: number;
   phrasingsSkipped: number;
   evalCasesAdded: number;
+  /** 勾选的例句里只当检查题、没加成问法的句数（splitForEval）。 */
+  heldOut: number;
   edgeId: string | null;
   /** 下线时挪到 moveTo 那张卡的问法（含被下线那张卡的问题）条数。 */
   phrasingsMoved: number;
@@ -192,6 +194,22 @@ export type AcceptResult = {
 };
 
 const NEW_CARD: ReadonlySet<string> = new Set(['new_faq', 'follow_up']);
+
+/**
+ * 勾选的例句一分为二（owner 2026-11-06「数据飞轮可能过拟合」）：同一句话不会既是卡的问法、又是发布检查的
+ * 回归题，否则检查是拿卡里的原句考它自己，必然命中，说明不了新的说法能不能答对。
+ * 按勾选顺序（越靠近组中心越先）：第 1、3、5… 句加成问法，第 2、4… 句只当回归题；只勾一句就只加问法。
+ */
+export function splitForEval<T>(picks: readonly T[]): {
+  phrasings: T[];
+  heldOut: T[];
+} {
+  if (picks.length < 2) return { phrasings: [...picks], heldOut: [] };
+  return {
+    phrasings: picks.filter((_, index) => index % 2 === 0),
+    heldOut: picks.filter((_, index) => index % 2 === 1),
+  };
+}
 
 export function createFaqCandidateService(deps: CandidateServiceDeps) {
   const labeller = deps.labeller ?? noGapLabeller;
@@ -400,6 +418,7 @@ export function createFaqCandidateService(deps: CandidateServiceDeps) {
       phrasingsAdded: 0,
       phrasingsSkipped: 0,
       evalCasesAdded: 0,
+      heldOut: 0,
       edgeId: null,
       phrasingsMoved: 0,
       archived: false,
@@ -436,7 +455,9 @@ export function createFaqCandidateService(deps: CandidateServiceDeps) {
     if (as === 'update_faq')
       await requireUpdatedSince(faqId, candidate.createdAt);
     const place = await placeFor(as, faqId, body.placementNodeId);
-    const picks = retiring ? [] : examplePicks(candidate, body.phrasings);
+    const picks = splitForEval(
+      retiring ? [] : examplePicks(candidate, body.phrasings),
+    );
     let parentId: string | null = null;
     let edgeId: string | null = null;
     if (as === 'follow_up') {
@@ -454,7 +475,7 @@ export function createFaqCandidateService(deps: CandidateServiceDeps) {
     }
     let phrasingsAdded = 0;
     let phrasingsSkipped = 0;
-    for (const example of picks) {
+    for (const example of picks.phrasings) {
       try {
         const { created } = await deps.graphService.addPhrasing(
           actor,
@@ -478,9 +499,10 @@ export function createFaqCandidateService(deps: CandidateServiceDeps) {
     const retired = retiring
       ? await retire(actor, faqId, moveTo)
       : { moved: 0, skipped: 0, archived: false };
-    // 只有员工勾选的例句当回归用例（没勾的可能说的是别的事，或者还留着个人信息；带占位符的不能勾）
+    // 只有员工勾选的例句当回归用例（没勾的可能说的是别的事，或者还留着个人信息；带占位符的不能勾），
+    // 而且只用留出来的那一半（splitForEval）
     const evalCasesAdded = await deps.candidates.insertEvalCases(
-      picks.map((e) => ({
+      picks.heldOut.map((e) => ({
         faqId,
         candidateId: candidate.id,
         locale: e.locale,
@@ -515,6 +537,7 @@ export function createFaqCandidateService(deps: CandidateServiceDeps) {
       phrasingsAdded,
       phrasingsSkipped: phrasingsSkipped + retired.skipped,
       evalCasesAdded,
+      heldOut: picks.heldOut.length,
       edgeId,
       phrasingsMoved: retired.moved,
       archived: retired.archived,

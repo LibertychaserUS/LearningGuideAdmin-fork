@@ -961,7 +961,7 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
       return created!;
     }
 
-    it('accepts as phrasings: placeholder-free examples become flywheel phrasings and regression cases', async () => {
+    it('accepts as phrasings: placeholder-free examples become flywheel phrasings or regression cases, never both', async () => {
       const node = await faq({ questionZh: '付款后课程没有开通怎么办？' });
       const candidate = await mined();
       const service = candidateService();
@@ -971,10 +971,12 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
         { as: 'add_phrasing', faqId: node.id, version: candidate.version },
         KEY(1),
       );
+      // 4 句不带占位符的例句：第 1、3 句加成问法，第 2、4 句只当回归题（splitForEval）
       expect(result).toMatchObject({
         replayed: false,
-        phrasingsAdded: 4,
-        evalCasesAdded: 4,
+        phrasingsAdded: 2,
+        evalCasesAdded: 2,
+        heldOut: 2,
         candidate: {
           status: 'accepted',
           acceptedAs: 'add_phrasing',
@@ -984,10 +986,13 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
         },
       });
       const phrasings = await graph().phrasingsOf(node.id);
-      expect(phrasings.map((p) => p.source)).toEqual(Array(4).fill('flywheel'));
+      expect(phrasings.map((p) => p.source)).toEqual(Array(2).fill('flywheel'));
       expect(phrasings.some((p) => p.text.includes('<'))).toBe(false);
       const cases = await candidates().evalCases();
-      expect(cases).toHaveLength(4);
+      expect(cases).toHaveLength(2);
+      // 同一句话不会既是问法又是回归题（检查不拿卡里的原句考它自己）
+      const own = new Set(phrasings.map((p) => p.text));
+      expect(cases.some((c) => own.has(c.text))).toBe(false);
       expect(
         cases.every((c) => c.faqId === node.id && c.faqKey === node.key),
       ).toBe(true);
@@ -1044,7 +1049,7 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
       );
     });
 
-    it('only the examples staff ticked become regression cases (an unticked one may be about something else or still hold a detail)', async () => {
+    it('only the examples staff ticked become phrasings or regression cases (an unticked one may be about something else or still hold a detail)', async () => {
       const node = await faq({ questionZh: '付款后课程没有开通怎么办？' });
       const candidate = await mined();
       const result = await candidateService().accept(
@@ -1058,11 +1063,17 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
         },
         KEY(3),
       );
-      expect(result).toMatchObject({ phrasingsAdded: 2, evalCasesAdded: 2 });
-      // 同一事务写入的两条 created_at 相同，顺序只靠 id，不固定：只比内容
-      expect(
-        (await candidates().evalCases()).map((c) => c.text).sort(),
-      ).toEqual([PAID[0], PAID[2]].sort());
+      expect(result).toMatchObject({
+        phrasingsAdded: 1,
+        evalCasesAdded: 1,
+        heldOut: 1,
+      });
+      expect((await candidates().evalCases()).map((c) => c.text)).toEqual([
+        PAID[2],
+      ]);
+      expect((await graph().phrasingsOf(node.id)).map((p) => p.text)).toEqual([
+        PAID[0],
+      ]);
       const none = await mined(['课程开通以后打不开视频', '视频一直打不开']);
       const nothing = await candidateService().accept(staff, none.id, {
         as: 'add_phrasing',
@@ -1070,8 +1081,12 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
         version: none.version,
         phrasings: [],
       });
-      expect(nothing).toMatchObject({ phrasingsAdded: 0, evalCasesAdded: 0 });
-      expect(await candidates().evalCases()).toHaveLength(2);
+      expect(nothing).toMatchObject({
+        phrasingsAdded: 0,
+        evalCasesAdded: 0,
+        heldOut: 0,
+      });
+      expect(await candidates().evalCases()).toHaveLength(1);
     });
 
     it('two staff accepting the same candidate at once: one wins, the other gets 409 and leaves nothing behind', async () => {
@@ -1241,10 +1256,11 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
         kind: 'retrieval',
         passed: true,
         metrics: {
-          // 4 道题的中英文 + 4 个问法 + 4 条勾选的回归用例
-          cases: 12,
-          regressionCases: 4,
+          // 2 道题的中英文 + 2 个问法 + 2 条留出来的回归用例（勾了 4 句，一半一半）
+          cases: 8,
+          regressionCases: 2,
           regressionSkipped: 0,
+          regressionLeaked: 0,
           recallAt8: 1,
         },
       });
@@ -1283,8 +1299,9 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
         KEY(2),
       );
       expect(result).toMatchObject({
-        phrasingsAdded: 2,
-        evalCasesAdded: 2,
+        phrasingsAdded: 1,
+        evalCasesAdded: 1,
+        heldOut: 1,
         candidate: { acceptedAs: 'new_faq', acceptedFaqId: node.id },
       });
       await rejects(
@@ -1439,8 +1456,9 @@ describeDb('Helpdesk data flywheel (PostgreSQL)', () => {
       const result = await service.accept(staff, candidate.id, body, KEY(8));
       expect(result).toMatchObject({
         placed: true,
-        phrasingsAdded: 4,
-        evalCasesAdded: 4,
+        phrasingsAdded: 2,
+        evalCasesAdded: 2,
+        heldOut: 2,
         candidate: { acceptedAs: 'update_faq', acceptedFaqId: card.id },
       });
       expect(
