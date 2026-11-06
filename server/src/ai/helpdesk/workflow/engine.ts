@@ -92,9 +92,27 @@ export interface AgentStepRunner {
 
 export type Transition = { next: string } | { end: TurnEndReason };
 
+/**
+ * code 步里顺带问一次模型（例如和检索同时把一句话拆成几件事）：这次调用记成自己的一步
+ * （step/start、step/end 带 parent = 这个 code 步的编号），不改变下一步怎么走，也不占步骤表的次数。
+ * 超时取 min(timeoutMs, 这一步的期限)；出错、超时、放弃都只是 outcome，由 code 步自己决定怎么办。
+ * 可以不等它（把 promise 留在 state 里，后面的步再等）：run 结束时还没回来的就取消（step/end 记
+ * outcome cancelled），所以每次调用都在 run 结束前记完。
+ */
+export type CodeStepContext = {
+  agent(
+    name: string,
+    spec: AgentStepSpec,
+    options?: { timeoutMs?: number },
+  ): Promise<AgentStepOutcome>;
+};
+
 export type CodeStep<S> = {
   kind: 'code';
-  run(state: S): Promise<{ state: S; then: Transition; output?: JsonObject }>;
+  run(
+    state: S,
+    context: CodeStepContext,
+  ): Promise<{ state: S; then: Transition; output?: JsonObject }>;
 };
 
 export type AgentStep<S> = {
@@ -176,114 +194,197 @@ export async function runWorkflow<S>(
   let name = template.start;
   const trail: string[] = [];
   const branch: JsonObject = deps.branch ? { branch: deps.branch } : {};
-  // 每一步至多走一次：步骤表多大，就最多走多少步
-  for (let taken = 0; taken < Object.keys(template.steps).length; taken++) {
-    const step = Object.hasOwn(template.steps, name)
-      ? template.steps[name]
-      : undefined;
-    if (!step) return { state, reason: 'error', trail };
-    trail.push(name);
-    try {
-      deps.onStep?.(name);
-    } catch {
-      // 听的人出了问题不算这次 run 的问题
-    }
-    const no = trace.nextStep();
-    let then: Transition;
-    if (step.kind === 'code') {
+  /** 跑一次 agent 调用（agent 步与 code 步里的顺带调用共用）：期限到了算 aborted。 */
+  const callAgent = (
+    spec: AgentStepSpec,
+    no: number,
+    stepName: string,
+    timeoutMs: number,
+    cancel?: AbortSignal,
+  ): Promise<AgentStepOutcome> => {
+    const timeout = AbortSignal.timeout(Math.max(1, timeoutMs));
+    const signals = [
+      timeout,
+      ...(deps.signal ? [deps.signal] : []),
+      ...(cancel ? [cancel] : []),
+    ];
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : timeout;
+    if (signal.aborted) return Promise.resolve(ABORTED);
+    if (!deps.runner || !deps.model)
+      return Promise.resolve({ kind: 'error', message: 'no runner' });
+    return untilAborted(
+      deps.runner.run(spec, {
+        trace,
+        step: no,
+        name: stepName,
+        signal,
+        model: deps.model,
+        traceparent: deps.traceparent,
+      }),
+      signal,
+    );
+  };
+  /** 一次调用的结果怎么记：模型写的短句只记长度（文字可能复述用户原文），列表与真 / 假是枚举，原样记。 */
+  const outcomeLog = (outcome: AgentStepOutcome): JsonObject => ({
+    outcome: outcome.kind,
+    ...(outcome.kind === 'called' ? { args: outcome.args } : {}),
+    ...(outcome.kind === 'called' && outcome.extras
+      ? extrasLog(outcome.extras)
+      : {}),
+  });
+  /** code 步里发出、还没回来的调用（run 结束时取消并等它记完）。 */
+  const pending = new Set<{
+    cancel: AbortController;
+    done: Promise<unknown>;
+  }>();
+  const contextFor = (parent: number): CodeStepContext => ({
+    agent(subName, spec, options = {}) {
+      const cancel = new AbortController();
+      const done = subCall(parent, subName, spec, options, cancel.signal);
+      const entry = { cancel, done };
+      pending.add(entry);
+      void done.finally(() => pending.delete(entry));
+      return done;
+    },
+  });
+  const subCall = async (
+    parent: number,
+    subName: string,
+    spec: AgentStepSpec,
+    options: { timeoutMs?: number },
+    cancel: AbortSignal,
+  ): Promise<AgentStepOutcome> => {
+    {
+      const no = trace.nextStep();
       trace.emit('step/start', {
         turn,
         step: no,
-        name,
-        kind: 'code',
-        ...branch,
-      });
-      try {
-        const result = await step.run(state);
-        state = result.state;
-        then = result.then;
-        trace.emit('step/end', {
-          turn,
-          step: no,
-          name,
-          kind: 'code',
-          ...branch,
-          then,
-          ...(result.output ? { output: result.output } : {}),
-        });
-      } catch (error) {
-        then = { end: 'error' };
-        trace.emit('step/end', {
-          turn,
-          step: no,
-          name,
-          kind: 'code',
-          ...branch,
-          then,
-          error: {
-            name: error instanceof Error ? error.name : 'Error',
-            code: 'step_failed',
-          },
-        });
-      }
-    } else {
-      const spec = step.prepare(state);
-      trace.emit('step/start', {
-        turn,
-        step: no,
-        name,
+        name: subName,
         kind: 'agent',
         tools: [spec.tool.name],
+        parent,
         ...branch,
       });
-      const timeout = AbortSignal.timeout(Math.max(1, deps.stepTimeoutMs()));
-      const signal = deps.signal
-        ? AbortSignal.any([timeout, deps.signal])
-        : timeout;
-      const outcome = signal.aborted
-        ? ABORTED
-        : deps.runner && deps.model
-          ? await untilAborted(
-              deps.runner.run(spec, {
-                trace,
-                step: no,
-                name,
-                signal,
-                model: deps.model,
-                traceparent: deps.traceparent,
-              }),
-              signal,
-            )
-          : ({ kind: 'error', message: 'no runner' } as const);
-      if (outcome.kind === 'aborted')
-        then = { end: deps.signal?.aborted ? 'aborted' : 'timeout' };
-      else if (outcome.kind === 'error') then = { end: 'error' };
-      else {
-        const decided = step.decide(
-          state,
-          outcome.kind === 'called' ? outcome.args : null,
-          outcome.kind === 'called' ? outcome.extras : undefined,
-        );
-        state = decided.state;
-        then = decided.then;
-      }
+      const outcome = await callAgent(
+        spec,
+        no,
+        subName,
+        Math.min(
+          deps.stepTimeoutMs(),
+          options.timeoutMs ?? Number.POSITIVE_INFINITY,
+        ),
+        cancel,
+      );
       trace.emit('step/end', {
         turn,
         step: no,
-        name,
+        name: subName,
         kind: 'agent',
+        parent,
         ...branch,
-        outcome: outcome.kind,
-        ...(outcome.kind === 'called' ? { args: outcome.args } : {}),
-        // 模型写的短句只记长度（文字可能复述学员原文）；列表与真 / 假是枚举，原样记
-        ...(outcome.kind === 'called' && outcome.extras
-          ? extrasLog(outcome.extras)
-          : {}),
-        then,
+        ...(cancel.aborted && outcome.kind === 'aborted'
+          ? { outcome: 'cancelled' }
+          : outcomeLog(outcome)),
       });
+      return outcome;
     }
-    if ('end' in then) return { state, reason: then.end, trail };
-    name = then.next;
+  };
+  const result = await walk();
+  for (const entry of pending) entry.cancel.abort();
+  await Promise.all([...pending].map((entry) => entry.done));
+  return result;
+
+  async function walk(): Promise<{
+    state: S;
+    reason: TurnEndReason;
+    trail: string[];
+  }> {
+    // 每一步至多走一次：步骤表多大，就最多走多少步
+    for (let taken = 0; taken < Object.keys(template.steps).length; taken++) {
+      const step = Object.hasOwn(template.steps, name)
+        ? template.steps[name]
+        : undefined;
+      if (!step) return { state, reason: 'error', trail };
+      trail.push(name);
+      try {
+        deps.onStep?.(name);
+      } catch {
+        // 听的人出了问题不算这次 run 的问题
+      }
+      const no = trace.nextStep();
+      let then: Transition;
+      if (step.kind === 'code') {
+        trace.emit('step/start', {
+          turn,
+          step: no,
+          name,
+          kind: 'code',
+          ...branch,
+        });
+        try {
+          const result = await step.run(state, contextFor(no));
+          state = result.state;
+          then = result.then;
+          trace.emit('step/end', {
+            turn,
+            step: no,
+            name,
+            kind: 'code',
+            ...branch,
+            then,
+            ...(result.output ? { output: result.output } : {}),
+          });
+        } catch (error) {
+          then = { end: 'error' };
+          trace.emit('step/end', {
+            turn,
+            step: no,
+            name,
+            kind: 'code',
+            ...branch,
+            then,
+            error: {
+              name: error instanceof Error ? error.name : 'Error',
+              code: 'step_failed',
+            },
+          });
+        }
+      } else {
+        const spec = step.prepare(state);
+        trace.emit('step/start', {
+          turn,
+          step: no,
+          name,
+          kind: 'agent',
+          tools: [spec.tool.name],
+          ...branch,
+        });
+        const outcome = await callAgent(spec, no, name, deps.stepTimeoutMs());
+        if (outcome.kind === 'aborted')
+          then = { end: deps.signal?.aborted ? 'aborted' : 'timeout' };
+        else if (outcome.kind === 'error') then = { end: 'error' };
+        else {
+          const decided = step.decide(
+            state,
+            outcome.kind === 'called' ? outcome.args : null,
+            outcome.kind === 'called' ? outcome.extras : undefined,
+          );
+          state = decided.state;
+          then = decided.then;
+        }
+        trace.emit('step/end', {
+          turn,
+          step: no,
+          name,
+          kind: 'agent',
+          ...branch,
+          ...outcomeLog(outcome),
+          then,
+        });
+      }
+      if ('end' in then) return { state, reason: then.end, trail };
+      name = then.next;
+    }
+    return { state, reason: 'error', trail };
   }
-  return { state, reason: 'error', trail };
 }

@@ -344,4 +344,127 @@ describe('runWorkflow', () => {
       (await looping.events()).filter((e) => e.type === 'step/start'),
     ).toHaveLength(1);
   });
+
+  describe('a model call inside a code step (multi-ask: split while retrieving)', () => {
+    const splitSpec = {
+      system: 'split',
+      prompt: '{"message":"a and b"}',
+      tool: {
+        name: 'split_asks',
+        description: 'Split',
+        enumArgs: { count: ['1', '2'] },
+        textArgs: { ask1: 'first', ask2: 'second' },
+      },
+      maxTokens: 50,
+    };
+    const parallel: WorkflowTemplate<State> = {
+      name: 'parallel',
+      start: 'retrieve',
+      steps: {
+        retrieve: {
+          kind: 'code',
+          async run(state, context) {
+            const [found, outcome] = await Promise.all([
+              Promise.resolve(3),
+              context.agent('split_asks', splitSpec, { timeoutMs: 1_000 }),
+            ]);
+            return {
+              state: { ...state, pick: outcome.kind },
+              then: { end: 'answered' },
+              output: { found },
+            };
+          },
+        },
+      },
+    };
+
+    it('records the call as its own agent step under the code step, texts only by length', async () => {
+      const { deps, events } = setup({
+        run: (_spec, context) => {
+          expect(context.name).toBe('split_asks');
+          return Promise.resolve({
+            kind: 'called',
+            args: { count: '2' },
+            extras: {
+              lists: {},
+              texts: { ask1: 'how do I change my email', ask2: 'refund?' },
+              flags: {},
+            },
+          });
+        },
+      });
+      const result = await runWorkflow(parallel, { trail: [] }, deps);
+      expect(result).toMatchObject({
+        reason: 'answered',
+        trail: ['retrieve'],
+        state: { pick: 'called' },
+      });
+      const steps = (await events()).map((e) => [e.type, e.data]);
+      expect(steps).toEqual([
+        ['step/start', { turn: 1, step: 1, name: 'retrieve', kind: 'code' }],
+        [
+          'step/start',
+          {
+            turn: 1,
+            step: 2,
+            name: 'split_asks',
+            kind: 'agent',
+            tools: ['split_asks'],
+            parent: 1,
+          },
+        ],
+        [
+          'step/end',
+          {
+            turn: 1,
+            step: 2,
+            name: 'split_asks',
+            kind: 'agent',
+            parent: 1,
+            outcome: 'called',
+            args: { count: '2' },
+            lists: {},
+            flags: {},
+            texts: { ask1: { length: 24 }, ask2: { length: 7 } },
+          },
+        ],
+        [
+          'step/end',
+          {
+            turn: 1,
+            step: 1,
+            name: 'retrieve',
+            kind: 'code',
+            then: { end: 'answered' },
+            output: { found: 3 },
+          },
+        ],
+      ]);
+    });
+
+    it('gives the code step the timeout as an outcome instead of ending the run', async () => {
+      const { deps } = setup({ run: () => new Promise(() => undefined) });
+      const started = Date.now();
+      const result = await runWorkflow(
+        parallel,
+        { trail: [] },
+        { ...deps, stepTimeoutMs: () => 30 },
+      );
+      expect(result).toMatchObject({
+        reason: 'answered',
+        state: { pick: 'aborted' },
+      });
+      expect(Date.now() - started).toBeLessThan(1_000);
+    });
+
+    it('reports a missing runner as an error outcome', async () => {
+      const { deps } = setup();
+      await expect(
+        runWorkflow(parallel, { trail: [] }, deps),
+      ).resolves.toMatchObject({
+        reason: 'answered',
+        state: { pick: 'error' },
+      });
+    });
+  });
 });
