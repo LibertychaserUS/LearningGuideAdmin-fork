@@ -163,13 +163,16 @@ function memoryStore(
       links.set(key, list);
       return Promise.resolve();
     },
-    load(release, model) {
+    load(release, model, known) {
       return Promise.resolve(
         (links.get(`${release}|${model}`) ?? []).map((row) => {
           const node = nodes.find((n) => n.id === row.nodeId);
           return {
             nodeId: row.nodeId,
-            vector: embeddings.get(`${model}|${row.hash}`)?.vector ?? [],
+            hash: row.hash,
+            vector: known?.has(row.hash)
+              ? []
+              : (embeddings.get(`${model}|${row.hash}`)?.vector ?? []),
             type: node?.type ?? 'answer',
             entry: node?.entry ?? true,
             category: node?.category ?? 'other',
@@ -607,6 +610,75 @@ describe('createFaqVectorSearch: speed', () => {
       warmFaqVectors(vectors, () => Promise.reject(new Error('db down'))),
     ).resolves.toBeUndefined();
     expect(warmed).toEqual([RELEASE]);
+  });
+
+  it('keeps at most loadedReleasesMax releases in memory and frees the rest', async () => {
+    const store = memoryStore(nodes);
+    const embedder = fakeEmbedder(table);
+    for (let release = 1; release <= 5; release++)
+      await indexFaqRelease({ store, embedder, release });
+    const vectors = createFaqVectorSearch({ store, embedder: () => embedder });
+    for (let release = 1; release <= 5; release++)
+      expect((await vectors.rank(release, '退钱'))?.[0].id).toBe('refund');
+    const memory = vectors.memory?.();
+    expect(memory?.releases).toBe(FAQ_VECTOR_LIMITS.loadedReleasesMax);
+    // 5 版用的是同样两段文本：池里只有两条向量
+    expect(memory?.vectors).toBe(2);
+    expect(memory?.bytes).toBe(2 * 2 * 4);
+  });
+
+  it('shares unchanged texts between releases: a new release reads only the vectors it does not have yet', async () => {
+    const store = memoryStore(nodes);
+    const embedder = fakeEmbedder(table);
+    await indexFaqRelease({ store, embedder, release: 1 });
+    await indexFaqRelease({ store, embedder, release: 2 });
+    const calls: { release: number; known: string[] }[] = [];
+    const load = store.load.bind(store);
+    store.load = (release, model, known) => {
+      calls.push({ release, known: [...(known ?? [])].sort() });
+      return load(release, model, known);
+    };
+    const vectors = createFaqVectorSearch({ store, embedder: () => embedder });
+    await vectors.rank(1, '退钱');
+    await vectors.rank(2, '退钱');
+    const hashes = ['Refund?', '退款？'].map((text) => textHash(text)).sort();
+    expect(calls).toEqual([
+      { release: 1, known: [] },
+      { release: 2, known: hashes },
+    ]);
+    expect(vectors.memory?.()).toMatchObject({ releases: 2, vectors: 2 });
+  });
+
+  it('reads an evicted release again when it is asked for, with the same answer', async () => {
+    const { store, loads } = await counted();
+    const embedder = fakeEmbedder(table);
+    for (let release = 1; release <= 4; release++)
+      await indexFaqRelease({ store, embedder, release });
+    const vectors = createFaqVectorSearch({ store, embedder: () => embedder });
+    const first = await vectors.rank(1, '退钱');
+    for (let release = 2; release <= 4; release++)
+      await vectors.rank(release, '退钱');
+    const before = loads();
+    expect(await vectors.rank(1, '退钱')).toEqual(first);
+    expect(loads()).toBe(before + 1);
+  });
+
+  it('reads a release in full when the store left out a vector the pool no longer has', async () => {
+    const store = memoryStore(nodes);
+    const embedder = fakeEmbedder(table);
+    await indexFaqRelease({ store, embedder, release: RELEASE });
+    const seen: (string[] | undefined)[] = [];
+    const load = store.load.bind(store);
+    // 坏的一面：说「你都有」，其实池里一条都没有（读的时候被别的版释放了）
+    store.load = async (release, model, known) => {
+      seen.push(known && [...known]);
+      const rows = await load(release, model);
+      return known ? rows.map((row) => ({ ...row, vector: [] })) : rows;
+    };
+    const vectors = createFaqVectorSearch({ store, embedder: () => embedder });
+    expect((await vectors.rank(RELEASE, '退钱'))?.[0].id).toBe('refund');
+    expect(seen).toEqual([[], undefined]);
+    expect(vectors.memory?.()).toMatchObject({ releases: 1, vectors: 2 });
   });
 
   it('asks for the question vector while the release is still loading', async () => {

@@ -282,6 +282,23 @@ describeDb('Helpdesk FAQ vectors (PostgreSQL)', () => {
     expect(await store.load(version, 'other/model')).toEqual([]);
   });
 
+  it('leaves out the vectors the caller already holds, by text hash', async () => {
+    const { version } = await publishedRelease();
+    await indexFaqRelease({
+      store,
+      embedder: fakeEmbedder(),
+      release: version,
+    });
+    const full = await store.load(version, MODEL);
+    const held = new Set(full.slice(0, 2).map((row) => row.hash as string));
+    const partial = await store.load(version, MODEL, held);
+    expect(partial).toHaveLength(full.length);
+    for (const row of partial) {
+      expect(row.hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(row.vector.length === 0).toBe(held.has(row.hash as string));
+    }
+  });
+
   it('finds the card by meaning where the lexical search finds nothing', async () => {
     const { version, refund, password } = await publishedRelease();
     const embedder = fakeEmbedder();
