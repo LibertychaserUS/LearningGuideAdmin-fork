@@ -51,6 +51,24 @@ function reasonsOf(locale: Locale, suite: FaqEvalSuite, limits: Limits): string[
   return out
 }
 
+/** 一句多问套件另报的逐件数：每件事给到卡的比例、多给的错卡、顺序（只看不拦）。别的套件没有 → null。 */
+function askLine(locale: Locale, suite: FaqEvalSuite): ReactNode {
+  const m = suite.metrics
+  if (typeof m.askCoverage !== 'number') return null
+  return (
+    <span className="hdGraphHint hdReleaseHint">
+      {t(locale, 'helpDesk.releases.report.asks', {
+        rate: pct(m.askCoverage),
+        covered: m.asksCovered ?? 0,
+        asks: m.asks ?? 0,
+        stray: m.strayCards ?? 0,
+        inOrder: m.inOrder ?? 0,
+        ordered: m.ordered ?? 0,
+      })}
+    </span>
+  )
+}
+
 function SuiteTable({ locale, suites, limits }: { locale: Locale; suites: FaqEvalSuite[]; limits: Limits }) {
   if (suites.length === 0) return <p className="hdGraphHint">{t(locale, 'helpDesk.releases.report.noSuites')}</p>
   const sep = locale === 'zh-CN' ? '；' : '; '
@@ -82,6 +100,7 @@ function SuiteTable({ locale, suites, limits }: { locale: Locale; suites: FaqEva
                   {t(locale, suite.passed ? 'helpDesk.releases.passed' : 'helpDesk.releases.failed')}
                 </span>
                 {reasons.length > 0 ? <span className="hdGraphHint hdReleaseHint">{reasons.join(sep)}</span> : null}
+                {askLine(locale, suite)}
               </td>
             </tr>
           )

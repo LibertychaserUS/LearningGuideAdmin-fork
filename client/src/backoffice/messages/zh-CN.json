@@ -1228,8 +1228,10 @@
           "followup": "追问（屏幕上开着父卡）",
           "changed": "改过的卡上的题",
           "language": "语言 {value}",
-          "style": "写法 {value}"
+          "style": "写法 {value}",
+          "multi": "一句问了几件事"
         },
+        "asks": "每件事给到卡 {rate}（{covered}/{asks}）；多给错卡 {stray} 张；按问的顺序 {inOrder}/{ordered}",
         "noSuites": "这次检查没有套件结果。",
         "missColumns": {
           "why": "原因",

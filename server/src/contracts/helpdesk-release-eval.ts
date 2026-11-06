@@ -21,6 +21,8 @@ export type ReleaseEvalAnswer = {
   nodeId: string | null;
   /** answer 且一句多问：第一张以外的卡（节点 id，按出现顺序）；只有一张时不写。 */
   more?: string[];
+  /** answer 且一句多问：回复说了还有几件事没有现成答案（1–2）；没有时不写。 */
+  missed?: number;
   /** 模型给的 intent（判分看寒暄是哪一种）；没调模型、或答题器不报 = null / 不写。 */
   intent?: SuggestIntent | null;
   /** clarify：答案里有没有写到（判分要它）；其余 null / 不写。 */

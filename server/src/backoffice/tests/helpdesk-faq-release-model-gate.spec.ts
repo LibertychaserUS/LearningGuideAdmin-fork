@@ -23,6 +23,7 @@ import {
 import {
   followupParents,
   planFollowups,
+  scoreAsks,
 } from '../modules/helpdesk/faqs/release-check/questions';
 import { textHash } from '../modules/helpdesk/faqs/faqVectors';
 import { wilson } from '../modules/helpdesk/faqs/release-check/stats';
@@ -222,10 +223,23 @@ describe('the live-pipeline check: which questions', () => {
             'expect',
             'faq',
             'acceptable',
+            'asks',
           ].includes(k),
         ),
       ).toBe(true);
       if (item.expect === 'answer') expect(typeof item.faq).toBe('string');
+    }
+    // 一句多问的 118 道题逐件标了卡（AI 标注），按问的顺序；库里没卡的那件 = null
+    const multi = all.filter((item) => item.asks);
+    expect(multi).toHaveLength(118);
+    for (const item of multi) {
+      expect([2, 3]).toContain(item.asks?.length);
+      for (const ask of item.asks ?? []) {
+        expect(
+          Object.keys(ask).every((k) => ['faq', 'acceptable'].includes(k)),
+        ).toBe(true);
+        expect(ask.faq === null || typeof ask.faq === 'string').toBe(true);
+      }
     }
   });
 
@@ -258,6 +272,44 @@ describe('the live-pipeline check: which questions', () => {
     });
     expect(byId.get('n1')).toMatchObject({ expect: 'no_match', faqId: null });
     expect(questions.every((q) => q.set === 's650')).toBe(true);
+  });
+
+  it('one message, several asks: maps each ask to this release in the order asked; a card this release lacks is no card; one ask is not several', () => {
+    const { questions } = planQuestions({
+      items: [
+        {
+          id: 'm1',
+          locale: 'zh-CN',
+          message: '怎么退款？密码忘了怎么办？还有作业能代写吗',
+          expect: 'answer',
+          faq: 'refund',
+          asks: [
+            { faq: 'refund-late', acceptable: ['refund', 'gone'] },
+            { faq: 'password' },
+            { faq: null },
+            { faq: 'not-in-this-library' },
+          ],
+        },
+        {
+          ...items[2],
+          id: 'm2',
+          message: 'one ask',
+          asks: [{ faq: 'password' }],
+        },
+      ],
+      snapshot,
+      changed: new Set(),
+      regression: [{ faqId: id(3), locale: 'zh-CN', text: '登录不上了' }],
+    });
+    const byId = new Map(questions.map((q) => [q.id, q]));
+    expect(byId.get('m1')?.asks).toEqual([
+      { faqId: id(2), acceptable: [id(1)], entryIds: [] },
+      { faqId: id(3), acceptable: [], entryIds: [] },
+      { faqId: null, acceptable: [], entryIds: [] },
+      { faqId: null, acceptable: [], entryIds: [] },
+    ]);
+    expect(byId.get('m2')?.asks).toBeNull();
+    expect(questions.find((q) => q.set === 'regression')?.asks).toBeNull();
   });
 
   it("adds the regression cases for cards in this release, never one that is its own card's question or phrasing (a leak)", () => {
@@ -365,6 +417,50 @@ describe('the live-pipeline check: scoring', () => {
     expect(
       scoreModelAnswer(q('n1'), { ...answer('answer', id(3)), more: [id(1)] }),
     ).toMatchObject({ wrongCard: true, cardWhenNone: true });
+  });
+
+  it('several asks: counts per ask which got its card, cards that answer no ask, the order, and asks said to have no answer', () => {
+    const [m] = planQuestions({
+      items: [
+        {
+          id: 'm1',
+          locale: 'en-GB',
+          message: 'refund? password? homework?',
+          expect: 'answer',
+          faq: 'refund',
+          asks: [{ faq: 'refund' }, { faq: 'password' }, { faq: null }],
+        },
+      ],
+      snapshot,
+      changed: new Set(),
+      regression: [],
+    }).questions;
+    // both cards, in the order asked, and the third ask said to have no answer
+    expect(
+      scoreAsks(m, { ...answer('answer', id(1)), more: [id(3)], missed: 1 }),
+    ).toEqual({
+      asks: 2,
+      covered: 2,
+      noCard: 1,
+      missedSaid: 1,
+      stray: 0,
+      inOrder: true,
+    });
+    // the order turned round, and a card no ask was about
+    expect(
+      scoreAsks(m, { ...answer('answer', id(3)), more: [id(2), id(1)] }),
+    ).toMatchObject({ covered: 2, stray: 1, inOrder: false, missedSaid: 0 });
+    // a follow-up card under the asked card is not that card; no card at all covers nothing
+    expect(scoreAsks(m, answer('answer', id(2)))).toMatchObject({
+      covered: 0,
+      stray: 1,
+      inOrder: null,
+    });
+    expect(scoreAsks(m, answer('no_match'))).toMatchObject({
+      covered: 0,
+      stray: 0,
+    });
+    expect(scoreAsks(q('a1'), answer('answer', id(1)))).toBeNull();
   });
 
   it('judges a rate on its 95% Wilson upper bound', () => {
@@ -532,6 +628,53 @@ describe('the live-pipeline check: pass or fail', () => {
       now: fixed,
     }).evaluate(input({ previous: live }));
     expect(worse.passed).toBe(false);
+  });
+
+  it('tracks one message with several asks as its own suite with the per-ask numbers, and never fails on them alone', async () => {
+    const several: ReleaseEvalItem[] = Array.from({ length: 4 }, (_, i) => ({
+      id: `multi-${i}`,
+      locale: 'en-GB',
+      message: `refund and password ${i}`,
+      expect: 'answer',
+      faq: 'refund',
+      asks: [{ faq: 'refund' }, { faq: 'password' }],
+    }));
+    const { answerer } = fakeAnswerer((message) =>
+      message === 'refund and password 0'
+        ? answer('answer', id(1), 0.0001, { more: [id(3)] })
+        : message.startsWith('refund and password')
+          ? answer('answer', id(1), 0.0001, { missed: 1 })
+          : right(message),
+    );
+    const report = await createModelReleaseGate({
+      answerer,
+      items: () => [...refunds(400), ...several],
+      now: fixed,
+    }).evaluate(input({ previous: live }));
+    expect(report.passed).toBe(true);
+    expect(report.suites?.find((s) => s.id === 'multi')).toMatchObject({
+      status: 'track',
+      rule: 'paired',
+      n: 4,
+      passed: true,
+      metrics: {
+        wrongCards: 0,
+        rightRate: 1,
+        asks: 8,
+        asksCovered: 5,
+        askCoverage: 0.625,
+        allCovered: 1,
+        strayCards: 0,
+        ordered: 1,
+        inOrder: 1,
+        noCardAsks: 0,
+        missedSaid: 3,
+      },
+    });
+    // the per-ask numbers are only on this suite
+    expect(
+      report.suites?.find((s) => s.id === 'combined')?.metrics,
+    ).not.toHaveProperty('askCoverage');
   });
 
   it('fails when cards are shown for more than 3% of the questions the library has no card for', async () => {

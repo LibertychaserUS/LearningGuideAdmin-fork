@@ -1,4 +1,5 @@
 import type { FaqEvalSuiteResult } from '../faqReleaseGate';
+import { scoreAsks } from './questions';
 import type { QuestionResult, RunResult } from './runner';
 import { rate, wilson } from './stats';
 
@@ -15,6 +16,8 @@ import { rate, wilson } from './stats';
  * - 检查不算数：没得到回答（不含超时）超过 errorRateMax，或漂移抽查变了超过 driftMax 道。
  * - 追问（B5，屏幕上开着父卡）：自成一个套件，track（还没有基线，到了 2% 再改 gate），不进全部题、语言与
  *   写法切片（那些是单问的数）；「不比线上差」照样拦。
+ * - 一句多问（owner 2026-11-06）：一句问了几件事的单问，track；另报逐件的数（每件事出没出它的卡、
+ *   多给的错卡、顺序、没卡时说没说），逐件的标签还是 AI 标的，先只看不拦。
  * 超时 = 学员没拿到答案：不算错卡，但算没答上（答对率的分母里有它）。
  */
 export type PolicyLimits = {
@@ -32,6 +35,8 @@ type Slice = {
   status: 'gate' | 'track';
   rule: 'interval' | 'point' | 'paired';
   pick: (r: QuestionResult) => boolean;
+  /** 这个套件另报的数（进 metrics）。 */
+  extra?: (rows: readonly QuestionResult[]) => Record<string, number>;
 };
 
 export type Judgement = {
@@ -125,6 +130,36 @@ export function suiteNumbers(
 /** 单问（不是追问）：全部题、语言与写法切片只数它。 */
 const single = (r: QuestionResult) => r.q.set !== 'followup';
 
+/**
+ * 一句多问逐件的数（候选版本）：超时算这几件事都没出卡（学员没拿到答案），检查出错的题不计。
+ * askCoverage = 库里有卡的事里出了它的卡的比例；allCovered = 有卡的事全出了的题；strayCards = 哪件事都
+ * 不对应的卡；inOrder / ordered = 出了两件以上的题里按问的顺序出的；missedSaid / noCardAsks = 回复说了没现成
+ * 答案的件数 / 库里没卡的件数。
+ */
+export function askNumbers(
+  rows: readonly QuestionResult[],
+): Record<string, number> {
+  const scores = rows
+    .filter((r) => !r.candidate.score.error)
+    .map((r) => scoreAsks(r.q, r.candidate.got))
+    .filter((score) => score !== null);
+  const sum = (pick: (s: (typeof scores)[number]) => number) =>
+    scores.reduce((total, s) => total + pick(s), 0);
+  const asks = sum((s) => s.asks);
+  const covered = sum((s) => s.covered);
+  return {
+    asks,
+    asksCovered: covered,
+    askCoverage: rate(covered, asks),
+    allCovered: scores.filter((s) => s.asks > 0 && s.covered >= s.asks).length,
+    strayCards: sum((s) => s.stray),
+    ordered: scores.filter((s) => s.inOrder !== null).length,
+    inOrder: scores.filter((s) => s.inOrder === true).length,
+    noCardAsks: sum((s) => s.noCard),
+    missedSaid: sum((s) => s.missedSaid),
+  };
+}
+
 function slices(results: readonly QuestionResult[]): Slice[] {
   const fixed: Slice[] = [
     {
@@ -168,6 +203,14 @@ function slices(results: readonly QuestionResult[]): Slice[] {
       status: 'track',
       rule: 'paired',
       pick: (r) => single(r) && r.q.changed,
+    },
+    {
+      id: 'multi',
+      label: 'Several asks in one message',
+      status: 'track',
+      rule: 'paired',
+      pick: (r) => r.q.asks !== null,
+      extra: askNumbers,
     },
   ];
   const singles = results.filter(single);
@@ -252,6 +295,7 @@ export function judgeRelease(
         ...(numbers.liveWrongRate === null
           ? {}
           : { liveWrongRate: numbers.liveWrongRate }),
+        ...(slice.extra?.(rows) ?? {}),
       },
       reasons: own,
     });

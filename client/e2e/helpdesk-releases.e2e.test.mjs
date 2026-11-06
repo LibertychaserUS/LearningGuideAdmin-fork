@@ -162,6 +162,9 @@ const v2Model = {
     suite('blind', 'Blind (written without seeing cards)', 'track', 275, 0.0109, 0.0316),
     suite('followup', 'Follow-ups (parent card on screen)', 'track', 12, 0, 0.2425),
     suite('changed', 'Questions on changed cards', 'track', 41, 0.0244, 0.1259),
+    suite('multi', 'Several asks in one message', 'track', 118, 0.0424, 0.0957, {
+      metrics: { wrongRate: 0.0424, wrongRateHigh: 0.0957, confirmedWorse: 0, scored: 118, asks: 207, asksCovered: 157, askCoverage: 0.7585, allCovered: 74, strayCards: 5, ordered: 66, inOrder: 65, noCardAsks: 32, missedSaid: 9 },
+    }),
     suite('language:en-GB', 'Language en-GB', 'gate', 530, 0.0038, 0.0137),
     suite('language:zh-CN', 'Language zh-CN', 'gate', 640, 0.0047, 0.0137),
     suite('language:zh-TW', 'Language zh-TW', 'gate', 330, 0.0091, 0.0264),
@@ -201,6 +204,9 @@ test('v2: the estimate shows before the check starts, and the check details open
   assert.equal(await details.getByRole('rowheader', { name: 'Language zh-TW' }).count(), 0)
   // the reason is written from the numbers and the limits in the report, in the page language
   await details.getByText('1 newly wrong against the live version').waitFor()
+  // several asks in one message: tracked, with the per-ask numbers on one line
+  await details.getByRole('rowheader', { name: 'Several asks in one message' }).waitFor()
+  await details.getByText('Card per ask 75.8% (157 of 207); 5 card(s) for no ask; in the order asked 65 of 66').waitFor()
   await details.evaluate((el) => el.scrollIntoView({ block: 'center' }))
   await shot(page, 'release-check-v2-suites')
   await details.getByRole('tab', { name: 'Slices' }).click()
@@ -236,6 +242,10 @@ test('zh-CN v2: 估计与检查详情', async () => {
   await details.getByRole('rowheader', { name: '全部单问' }).waitFor()
   await details.getByText('比线上新错 1 道').waitFor()
   assert.equal(await details.getByText('newly wrong against the live version').count(), 0)
+  await details.getByRole('rowheader', { name: '一句问了几件事' }).waitFor()
+  await details.getByText('每件事给到卡 75.8%（157/207）；多给错卡 5 张；按问的顺序 65/66').waitFor()
+  await details.getByRole('rowheader', { name: '一句问了几件事' }).scrollIntoViewIfNeeded()
+  await shot(page, 'release-check-v2-multi-zh-CN')
   await details.evaluate((el) => el.scrollIntoView({ block: 'center' }))
   await shot(page, 'release-check-v2-suites-zh-CN')
   await details.getByRole('tab', { name: '切片' }).click()

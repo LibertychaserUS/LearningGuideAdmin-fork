@@ -1228,8 +1228,10 @@
           "followup": "Follow-ups (parent card on screen)",
           "changed": "Questions on changed cards",
           "language": "Language {value}",
-          "style": "Style {value}"
+          "style": "Style {value}",
+          "multi": "Several asks in one message"
         },
+        "asks": "Card per ask {rate} ({covered} of {asks}); {stray} card(s) for no ask; in the order asked {inOrder} of {ordered}",
         "noSuites": "This check has no suite results.",
         "missColumns": {
           "why": "Why",

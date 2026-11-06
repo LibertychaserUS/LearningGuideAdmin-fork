@@ -38,20 +38,31 @@ const ENV = {
   HELPDESK_RERANK_MODEL: 'off',
 };
 
+const FAILED: HelpdeskQaCandidate = {
+  ...RESET,
+  id: id(2),
+  question: 'My payment failed. What now?',
+  answer: 'Check the card details and try again.',
+  blocks: [{ id: 'b1', text: 'Check the card details and try again.' }],
+};
+
 function setup(
   reply: (spec: AgentStepSpec) => Promise<AgentStepOutcome>,
   env: NodeJS.ProcessEnv = ENV,
   cache?: ReturnType<typeof createMemoryEvalCacheStore>,
+  cards: HelpdeskQaCandidate[] = [RESET],
 ) {
   const pinned: { version: number; snapshot: unknown }[] = [];
   const searches: HelpdeskQaSearch[] = [];
   const qa: HelpdeskQaSource = {
     findCandidates: (search) => {
       searches.push(search);
-      return Promise.resolve([RESET]);
+      return Promise.resolve(cards);
     },
-    findPublished: (faqId) =>
-      Promise.resolve(faqId === RESET.id ? { ...RESET, score: 0 } : null),
+    findPublished: (faqId) => {
+      const card = cards.find((c) => c.id === faqId);
+      return Promise.resolve(card ? { ...card, score: 0 } : null);
+    },
     findPopular: () => Promise.resolve([]),
     releaseVersion: () => Promise.resolve(7),
   };
@@ -196,6 +207,61 @@ describe('release answerer (live pipeline on a candidate release)', () => {
       .forRelease({ version: 8, snapshot: {} })
       .ask({ message: 'forgot my password', locale: 'en-GB', cache: 'bypass' });
     expect(run.mock.calls.length).toBe(calls * 2);
+  });
+
+  it('one message that asks several things: returns every card in the order shown and how many asks had none', async () => {
+    const message =
+      'How do I reset my password? And what do I do when my payment failed?';
+    const reply =
+      (card2: string) =>
+      (spec: AgentStepSpec): Promise<AgentStepOutcome> =>
+        spec.tool.name === 'split_asks'
+          ? Promise.resolve({
+              kind: 'called',
+              args: { count: '2' },
+              extras: {
+                lists: {},
+                texts: {
+                  ask1: 'How do I reset my password?',
+                  ask2: 'What do I do when my payment failed?',
+                },
+                flags: {},
+              },
+            })
+          : spec.tool.name === 'pick_asks'
+            ? called({
+                intent: 'question',
+                card1: RESET.id,
+                confidence1: 'sure',
+                card2,
+                confidence2: 'sure',
+              })
+            : called({
+                intent: 'question',
+                faqId: RESET.id,
+                confidence: 'sure',
+              });
+    const env = { ...ENV, HELPDESK_MULTI_ASK: 'on' };
+    const both = setup(reply(FAILED.id), env, undefined, [RESET, FAILED]);
+    const got = await both.answerer
+      .forRelease({ version: 7, snapshot: {} })
+      .ask({ message, locale: 'en-GB' });
+    expect(got).toMatchObject({
+      kind: 'answer',
+      nodeId: RESET.id,
+      more: [FAILED.id],
+    });
+    expect('missed' in got).toBe(false);
+    const one = setup(reply('none'), env, undefined, [RESET, FAILED]);
+    const missed = await one.answerer
+      .forRelease({ version: 7, snapshot: {} })
+      .ask({ message, locale: 'en-GB' });
+    expect(missed).toMatchObject({
+      kind: 'answer',
+      nodeId: RESET.id,
+      missed: 1,
+    });
+    expect('more' in missed).toBe(false);
   });
 
   it('is not available without an API key, and then answers nothing', async () => {

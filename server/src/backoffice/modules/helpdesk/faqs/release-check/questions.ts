@@ -33,6 +33,18 @@ export type ReleaseEvalItem = {
   expect: 'answer' | 'no_match' | 'smalltalk';
   faq?: string;
   acceptable?: string[];
+  /**
+   * 一句话问了几件事（owner 2026-11-06「一句多问」）：每件事标的卡（key；库里没有 = null）与也算对的卡，
+   * 按问的顺序。AI 标注（Sonnet 标、有分歧的由 Opus 复核），只有开发集的多问题有。
+   */
+  asks?: { faq: string | null; acceptable?: string[] }[];
+};
+
+/** 一句多问里的一件事（节点 id）：标的卡（这一版没有 = null）、也算对的卡与通向它们的入口卡。 */
+export type EvalAsk = {
+  faqId: string | null;
+  acceptable: string[];
+  entryIds: string[];
 };
 
 /** followup = B5 追问：屏幕上开着父卡时问子卡的题（开发集的原句，见 planFollowups）。 */
@@ -60,6 +72,8 @@ export type EvalQuestion = {
   changed: boolean;
   /** 追问：屏幕上开着的父卡（节点 id 与 key）与之前的学员原文；单问 = null。 */
   screen: { nodeId: string; key: string; recentTurns: string[] } | null;
+  /** 一句问了几件事（两件以上才有，按问的顺序）；其余 = null。 */
+  asks: EvalAsk[] | null;
 };
 
 const DEFAULT_SET = join(__dirname, '..', 'release-eval', 'eval-v6-dev.jsonl');
@@ -163,6 +177,30 @@ export function planQuestions(input: {
         .filter((id): id is string => id !== undefined && id !== main);
       gold = [main, ...new Set(also)];
     }
+    // 一句多问：每件事的卡换成这一版的节点 id；这一版没有那张卡 = 库里没卡（该说没找到）
+    const asks =
+      item.asks && item.asks.length >= 2
+        ? item.asks.map((ask): EvalAsk => {
+            const main = ask.faq ? (idOfKey.get(ask.faq) ?? null) : null;
+            const also = main
+              ? [
+                  ...new Set(
+                    (ask.acceptable ?? [])
+                      .map((key) => idOfKey.get(key))
+                      .filter(
+                        (id): id is string => id !== undefined && id !== main,
+                      ),
+                  ),
+                ]
+              : [];
+            const ids = main ? [main, ...also] : [];
+            return {
+              faqId: main,
+              acceptable: also,
+              entryIds: entriesFor(ids),
+            };
+          })
+        : null;
     add({
       id: item.id,
       set: item.set === 'blind' ? 'blind' : 's650',
@@ -176,6 +214,7 @@ export function planQuestions(input: {
       entryIds: entriesFor(gold),
       changed: gold.some((id) => changedIds.has(id)),
       screen: null,
+      asks,
     });
   }
   let index = 0;
@@ -203,6 +242,7 @@ export function planQuestions(input: {
       entryIds: entriesFor([one.faqId]),
       changed: changedIds.has(one.faqId),
       screen: null,
+      asks: null,
     });
   }
   const max = input.questionsMax ?? Infinity;
@@ -335,6 +375,7 @@ export function planFollowups(input: {
         key: parent.key,
         recentTurns: said.trim() === '' ? [] : [said],
       },
+      asks: null,
     });
   }
   return out;
@@ -402,5 +443,53 @@ export function scoreModelAnswer(
     cardWhenNone: one.expect === 'no_match' && scored.wrongFaq,
     timeout: false,
     error: false,
+  };
+}
+
+/** 一句多问一题的逐件判分（候选版本出的卡：第一张加 more，按出现顺序）。 */
+export type AskScore = {
+  /** 库里有卡的事。 */
+  asks: number;
+  /** 其中出了它的卡（标的卡、也算对的卡或通向它的入口卡）的。 */
+  covered: number;
+  /** 库里没卡的事。 */
+  noCard: number;
+  /** 回复说了「还有几件没现成答案」的件数（不超过没出卡的件数）。 */
+  missedSaid: number;
+  /** 出了的卡里哪件事都不对应的张数（多给的错卡）。 */
+  stray: number;
+  /** 出了卡的事是不是按问的顺序出（出了卡的事不到两件 = null）。 */
+  inOrder: boolean | null;
+};
+
+export function scoreAsks(
+  one: EvalQuestion,
+  got: ReleaseEvalAnswer,
+): AskScore | null {
+  if (!one.asks) return null;
+  const shown =
+    got.kind === 'answer' && got.nodeId
+      ? [got.nodeId, ...(got.more ?? [])]
+      : [];
+  const allowed = one.asks.map((ask) =>
+    ask.faqId ? [ask.faqId, ...ask.acceptable, ...ask.entryIds] : [],
+  );
+  const at = allowed.map((ids) => shown.findIndex((c) => ids.includes(c)));
+  const whole = [one.faqId, ...one.acceptable, ...one.entryIds];
+  const hits = at.filter((position) => position >= 0);
+  const covered = hits.length;
+  return {
+    asks: one.asks.filter((ask) => ask.faqId !== null).length,
+    covered,
+    noCard: one.asks.filter((ask) => ask.faqId === null).length,
+    missedSaid: Math.min(got.missed ?? 0, one.asks.length - covered),
+    stray: shown.filter(
+      (c) => !whole.includes(c) && !allowed.some((ids) => ids.includes(c)),
+    ).length,
+    // 同一张卡答了两件事（位置相同）也算按顺序
+    inOrder:
+      hits.length >= 2
+        ? hits.every((position, i) => i === 0 || position >= hits[i - 1])
+        : null,
   };
 }
