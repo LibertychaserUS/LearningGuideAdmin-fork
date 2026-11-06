@@ -1,4 +1,5 @@
 import type { FaqRepository } from './faqRepository';
+import type { FaqTextCollision } from './release-check/collisions';
 import type { FaqReleaseSnapshot } from './faqRelease';
 import { toSimplified } from './faqSearchText';
 
@@ -55,6 +56,8 @@ export type FaqReleaseEvalReport = {
   suites?: FaqEvalSuiteResult[];
   /** 这次检查用了什么（模型、题集、缓存版本……），复查与对账用。 */
   receipt?: Record<string, string | number>;
+  /** 这一版新加的、和别的卡几乎一样的文字（只提醒，release-check/collisions.ts）。 */
+  collisions?: FaqTextCollision[];
 };
 
 /** 一个套件或切片：gate = 不过就不能发布；track = 只看（「不比线上差」仍由全部题那一项拦）。 */

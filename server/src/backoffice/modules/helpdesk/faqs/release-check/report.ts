@@ -187,11 +187,17 @@ export function releaseCheckSummary(input: {
   model: string;
   judgement: Judgement;
   run: RunResult;
+  /** 这一版新出的重复问法几对（只提醒，不影响通过）。 */
+  collisions?: number;
 }): string {
   const c = input.judgement.combined;
   const all = input.judgement.everything;
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+  const note =
+    (input.collisions ?? 0) > 0
+      ? `; note: ${input.collisions} new near-duplicate text(s) across cards`
+      : '';
   if (!input.passed)
-    return `Live-pipeline check failed (${input.model}): ${input.judgement.reasons.join('; ')}`;
-  return `Live-pipeline check passed (${input.model}): wrong card ${pct(c.wrongRate)} (95% upper ${pct(c.wrongHigh)}) over ${c.scored} questions, ${all.confirmedWorse} newly wrong, $${input.run.spend.total.toFixed(3)}`;
+    return `Live-pipeline check failed (${input.model}): ${input.judgement.reasons.join('; ')}${note}`;
+  return `Live-pipeline check passed (${input.model}): wrong card ${pct(c.wrongRate)} (95% upper ${pct(c.wrongHigh)}) over ${c.scored} questions, ${all.confirmedWorse} newly wrong, $${input.run.spend.total.toFixed(3)}${note}`;
 }

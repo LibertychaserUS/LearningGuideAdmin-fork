@@ -257,6 +257,10 @@ export class BackofficeModule implements OnModuleInit, OnApplicationShutdown {
                       // 线上检索的向量那一路要这一版的向量（只算改过的文字；没配向量模型 = 不做）
                       prepare: (version) =>
                         createEnvFaqVectorIndexer().index(version),
+                      // 重复问法检查读的是线上检索那一份内存索引（不另读一份向量）
+                      vectors: (version) =>
+                        sharedFaqVectorSearch().texts?.(version) ??
+                        Promise.resolve(null),
                     }),
                   }
                 : {}),

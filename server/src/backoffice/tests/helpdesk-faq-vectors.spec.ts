@@ -513,6 +513,34 @@ describe('createFaqVectorSearch', () => {
     expect(ranked?.[0].entry).toBe(false);
   });
 
+  it('hands out the text vectors of a release from the same memory index (for the duplicate-text check), and null without a model', async () => {
+    const { store, embedder } = await indexed();
+    const vectors = createFaqVectorSearch({ store, embedder: () => embedder });
+    const rows = await vectors.texts?.(RELEASE);
+    expect(
+      rows?.map((r) => [r.nodeId, r.hash]).sort((a, b) => (a < b ? -1 : 1)),
+    ).toEqual(
+      [
+        ['password', textHash('Password?')],
+        ['password', textHash('密码？')],
+        ['password', textHash('忘记密码')],
+        ['refund', textHash('Refund?')],
+        ['refund', textHash('退款？')],
+        ['refund', textHash('钱扣了两次')],
+      ].sort((a, b) => (a < b ? -1 : 1)),
+    );
+    // unit vectors, no second copy: the memory counts each text once
+    const one = rows?.find((r) => r.hash === textHash('忘记密码'))?.vector;
+    expect(one && Math.hypot(...one)).toBeCloseTo(1, 5);
+    expect(vectors.memory?.().vectors).toBe(6);
+    expect(
+      await createFaqVectorSearch({ store, embedder: () => null }).texts?.(
+        RELEASE,
+      ),
+    ).toBeNull();
+    expect(await vectors.texts?.(RELEASE + 9)).toBeNull();
+  });
+
   it('embeds a repeated question once', async () => {
     const { store, embedder } = await indexed();
     const vectors = createFaqVectorSearch({ store, embedder: () => embedder });

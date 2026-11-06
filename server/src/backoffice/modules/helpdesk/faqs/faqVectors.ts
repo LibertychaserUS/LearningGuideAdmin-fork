@@ -524,6 +524,17 @@ export type FaqVectorSearch = {
    * 不另读一份卡片向量，也不和线上共用问句向量的内存表。
    */
   withEmbedder?(wrap: (embedder: FaqEmbedder) => FaqEmbedder): FaqVectorSearch;
+  /**
+   * 这一版每条文本的向量（单位化；就是内存索引里那一份，不复制）：发布前的重复问法检查用。
+   * 没有模型、这一版还没算好 → null。
+   */
+  texts?(release: number): Promise<FaqVectorTextRow[] | null>;
+};
+
+export type FaqVectorTextRow = {
+  nodeId: string;
+  hash: string;
+  vector: Float32Array;
 };
 
 export type FaqVectorMemory = {
@@ -596,7 +607,12 @@ export function createFaqVectorSearch(deps: {
   const now = deps.now ?? (() => Date.now());
   const hedgeAfterMs = deps.hedgeAfterMs ?? FAQ_VECTOR_LIMITS.hedgeAfterMs;
   type Loaded = {
-    nodes: ({ id: string; vectors: Float32Array[] } & FaqVectorNodeMeta)[];
+    nodes: ({
+      id: string;
+      vectors: Float32Array[];
+      /** 和 vectors 一一对应的文本哈希（行没带哈希 = null）。 */
+      hashes: (string | null)[];
+    } & FaqVectorNodeMeta)[];
     at: number;
     /** 这一版在共用池里占着的向量（释放这一版时归还）。 */
     pooled: string[];
@@ -684,12 +700,14 @@ export function createFaqVectorSearch(deps: {
       const node = byNode.get(row.nodeId) ?? {
         id: row.nodeId,
         vectors: [],
+        hashes: [],
         type: row.type,
         entry: row.entry,
         category: row.category,
         popular: row.popular,
       };
       node.vectors.push(vector);
+      node.hashes.push(row.hash ?? null);
       byNode.set(row.nodeId, node);
     }
     return { nodes: [...byNode.values()], at: now(), pooled, loose };
@@ -790,18 +808,38 @@ export function createFaqVectorSearch(deps: {
     if (loaded.nodes.length === 0) return null;
     const query = await embedding;
     return loaded.nodes
-      .map(({ vectors, ...node }) => ({
-        ...node,
-        similarity: Math.max(...vectors.map((v) => dot(query, v))),
+      .map((node) => ({
+        id: node.id,
+        type: node.type,
+        entry: node.entry,
+        category: node.category,
+        popular: node.popular,
+        similarity: Math.max(...node.vectors.map((v) => dot(query, v))),
       }))
       .sort((a, b) => b.similarity - a.similarity || (a.id < b.id ? -1 : 1));
+  }
+
+  async function texts(release: number): Promise<FaqVectorTextRow[] | null> {
+    const base = deps.embedder();
+    if (!base) return null;
+    const loaded = await index(release, base.model);
+    if (loaded.nodes.length === 0) return null;
+    const out: FaqVectorTextRow[] = [];
+    for (const node of loaded.nodes)
+      node.vectors.forEach((vector, i) => {
+        const hash = node.hashes[i];
+        if (hash) out.push({ nodeId: node.id, hash, vector });
+      });
+    return out;
   }
 
   return {
     rank: (release, raw, signal) => rank(release, raw, signal),
     withEmbedder: (wrap) => ({
       rank: (release, raw, signal) => rank(release, raw, signal, wrap),
+      texts,
     }),
+    texts,
     async warm(release) {
       const embedder = deps.embedder();
       if (!embedder) return;

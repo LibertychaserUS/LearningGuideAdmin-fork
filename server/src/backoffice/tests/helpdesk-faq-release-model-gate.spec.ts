@@ -24,6 +24,7 @@ import {
   followupParents,
   planFollowups,
 } from '../modules/helpdesk/faqs/release-check/questions';
+import { textHash } from '../modules/helpdesk/faqs/faqVectors';
 import { wilson } from '../modules/helpdesk/faqs/release-check/stats';
 
 /**
@@ -846,5 +847,49 @@ describe('the live-pipeline check: follow-ups (B5, parent card on screen)', () =
       onScreen: 'password',
       live: 'answer:refund-late',
     });
+  });
+});
+
+describe('the live-pipeline check: duplicate texts (a note, never a fail)', () => {
+  it('notes a text this release added to one card that another card already has, and still passes', async () => {
+    const withDup: FaqReleaseSnapshot = {
+      ...snapshot,
+      phrasings: [{ faqId: id(3), locale: 'zh-CN', text: '问 refund' }],
+    };
+    const same = Float32Array.from([1, 0]);
+    const report = await createModelReleaseGate({
+      answerer: fakeAnswerer(right).answerer,
+      items: () => refunds(250),
+      now: fixed,
+      vectors: (version) =>
+        Promise.resolve(
+          version === 2
+            ? [
+                { nodeId: id(1), hash: textHash('问 refund'), vector: same },
+                { nodeId: id(3), hash: textHash('问 refund'), vector: same },
+                {
+                  nodeId: id(3),
+                  hash: textHash('Q password'),
+                  vector: Float32Array.from([0, 1]),
+                },
+              ]
+            : null,
+        ),
+    }).evaluate(input({ snapshot: withDup, previous: live }));
+    expect(report.passed).toBe(true);
+    expect(report.metrics).toMatchObject({
+      collisionsNew: 1,
+      collisionCardPairs: 1,
+      collisionTextsChecked: 1,
+    });
+    expect(report.collisions).toEqual([
+      {
+        similarity: 1,
+        added: { key: 'password', text: '问 refund', source: 'phrasing' },
+        other: { key: 'refund', text: '问 refund', source: 'question_zh' },
+        byState: false,
+      },
+    ]);
+    expect(report.summary).toContain('1 new near-duplicate text(s)');
   });
 });
