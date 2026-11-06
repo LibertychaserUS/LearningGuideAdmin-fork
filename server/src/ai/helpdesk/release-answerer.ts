@@ -80,6 +80,8 @@ export function createReleaseAnswerer(
     available: () => (env().OPENROUTER_API_KEY?.trim() ?? '') !== '',
     model: () => suggestModel(env()),
     forRelease({ version, snapshot }) {
+      // 每次检查开始时顺手删掉过期的缓存条目（读的时候本来就不用，这里只是腾地方）；失败不影响检查
+      void deps.cache?.prune?.().catch(() => undefined);
       const events = createMemoryAgentEventLog();
       const service = new HelpdeskSuggestService({
         qa: deps.qaFor(version, snapshot),
