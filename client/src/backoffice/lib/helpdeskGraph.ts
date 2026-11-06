@@ -235,7 +235,7 @@ export function evalRecall(report: FaqReleaseEvalReport | null): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-/** 真流程抽样那一份报告（combined 的 parts 里，或单独的 model 报告）；没跑 → null。 */
+/** 真流程检查那一份报告（combined 的 parts 里，或单独的 model 报告）；没跑 → null。 */
 export function modelReport(report: FaqReleaseEvalReport | null): FaqReleaseEvalReport | null {
   if (!report) return null
   if (report.kind === 'model') return report

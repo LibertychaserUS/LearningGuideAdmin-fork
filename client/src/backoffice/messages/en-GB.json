@@ -1140,7 +1140,7 @@
       "counts": "{nodes} questions, {entries} entries, {choices} choice questions, {edges} links, {phrasings} phrasings",
       "create": "Create new version",
       "creating": "Creating…",
-      "createHint": "Freezes the working copy, then runs the graph checks, the retrieval check and the live-pipeline sample in the background (about 3–5 minutes). Nothing goes live until you publish.",
+      "createHint": "Freezes the working copy, then runs the graph checks, the retrieval check and the live-pipeline check in the background (every dev question, compared one by one with the live version; unchanged questions come from the cache at no cost; about 5–10 minutes). Nothing goes live until you publish.",
       "sameAsLatest": "Nothing changed since v{version}, so no new version was created.",
       "created": "v{version} created.",
       "history": "Version history",
@@ -1190,11 +1190,11 @@
         "starting": "Checking…",
         "retrieval": "Checking: retrieval",
         "vectors": "Checking: preparing vectors",
-        "model": "Checking: live-pipeline sample {done} / {total}"
+        "model": "Checking: live pipeline {done} / {total}"
       },
       "interruptedHint": "The check did not finish (a restart or deploy stopped it). Use Check again to run it again.",
-      "model": "Live-pipeline sample {result}: wrong card {wrong}%, {cases} questions, about ¥{cny}",
-      "modelNotRun": "Live-pipeline sample: not run"
+      "model": "Live-pipeline check {result}: wrong card {wrong}%, {cases} questions, about ¥{cny}",
+      "modelNotRun": "Live-pipeline check: not run"
     },
     "candidates": {
       "search": "Search topics, questions or examples...",

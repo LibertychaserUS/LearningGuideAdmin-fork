@@ -795,7 +795,7 @@ describe('publish a new version (graph design §5.4)', () => {
         evaluation: { state: 'running', startedAt: '2026-11-03T10:00:00Z', progress: { stage: 'model', done: 120, total: 300 } },
       })
       const { dialog } = await openReleases('ADMIN', [release(1), release(2, { status: 'published' }), running])
-      assert.ok(within(dialog).getByText('Checking: live-pipeline sample 120 / 300'))
+      assert.ok(within(dialog).getByText('Checking: live pipeline 120 / 300'))
       assert.ok(within(dialog).getByText('Checking'))
       // still running: no second check can be started
       absent(within(dialog).queryByRole('button', { name: /^Check again/ }))
@@ -819,7 +819,7 @@ describe('publish a new version (graph design §5.4)', () => {
         ),
         published: 2,
       })
-      await within(dialog).findByText('Checking: live-pipeline sample 210 / 300')
+      await within(dialog).findByText('Checking: live pipeline 210 / 300')
       sources[0].push('releases', {
         releases: [
           release(3, {
@@ -842,13 +842,13 @@ describe('publish a new version (graph design §5.4)', () => {
         ],
         published: 2,
       })
-      await within(dialog).findByText(/^Live-pipeline sample Passed: wrong card 1\.0%, 300 questions, about ¥0\.86/)
+      await within(dialog).findByText(/^Live-pipeline check Passed: wrong card 1\.0%, 300 questions, about ¥0\.86/)
       absent(within(dialog).queryByText(/^Checking: /))
       // pushed, not re-read
       assert.equal(server.callsTo('GET', '/api/helpdesk/faq-releases').length, reads)
       // a broken frame is ignored
       sources[0].emit('releases', '{not json')
-      assert.ok(within(dialog).getByText(/^Live-pipeline sample Passed/))
+      assert.ok(within(dialog).getByText(/^Live-pipeline check Passed/))
       // closing the drawer closes the connection
       fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
       await waitFor(() => assert.equal(sources[0].closed, true))

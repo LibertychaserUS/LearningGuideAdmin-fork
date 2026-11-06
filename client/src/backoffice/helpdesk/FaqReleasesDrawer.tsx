@@ -41,7 +41,7 @@ import { useModal } from './useModal'
  * -「发布新版本」冻结工作副本 → 图检查 → 评测门（服务端），结果写进版本历史；工作副本没变 → 不新建；
  * - 版本历史：状态、检查、评测（recall@8）、每个版本的改动；能发布的「发布 vN」，曾经上线过的「回滚到此版本」
  *  （发布与回滚都先确认）；draft / rejected 可「重新检查」。
- * 检查在后台跑（owner 2026-11-03：检索检查 + 真流程抽样，约 3–5 分钟）：抽屉开着时一直连着版本列表的
+ * 检查在后台跑（owner 2026-11-03：检索检查 + 真流程检查；2026-11-06 起全部开发题、逐题和线上比，约 5–10 分钟）：抽屉开着时一直连着版本列表的
  * 长连接（SSE，watchReleases），进度和结果由服务端推，不定时重读；心跳停了显示「检查中断」，可以重新检查。
  * 写操作只给 helpDesk = FULL（服务端同样拒绝）；VIEW 只看。没有 Figma 画板：沿用 FAQ 抽屉、表格与确认框的
  * 样式（待视觉验收）。模态层同 FAQ 抽屉（useModal）。
@@ -283,7 +283,7 @@ export function FaqReleasesDrawer({ locale, canWrite, onClose }: Props) {
     return text === key ? t(locale, 'helpDesk.releases.progress.starting') : text
   }
 
-  /** 真流程抽样的一行（错卡率、题数、花费）；没有这一份 → null。 */
+  /** 真流程检查的一行（错卡率、题数、花费）；没有这一份 → null。 */
   function modelText(release: FaqRelease): { text: string; hint: string | null } | null {
     const model = modelReport(release.evalReport)
     if (!model) return null

@@ -1140,7 +1140,7 @@
       "counts": "{nodes} 个问题、{entries} 个入口、{choices} 道选择题、{edges} 条连接、{phrasings} 种问法",
       "create": "生成新版本",
       "creating": "生成中…",
-      "createHint": "冻结工作副本，然后在后台运行图检查、检索检查和真流程抽样（约 3–5 分钟）。发布之前不会上线。",
+      "createHint": "冻结工作副本，然后在后台运行图检查、检索检查和真流程检查（全部开发题，逐题和线上版本比；没改过的题走缓存不再花钱，约 5–10 分钟）。发布之前不会上线。",
       "sameAsLatest": "相对 v{version} 没有改动，没有新建版本。",
       "created": "已创建 v{version}。",
       "history": "版本历史",
@@ -1190,11 +1190,11 @@
         "starting": "检查中…",
         "retrieval": "检查中：检索",
         "vectors": "检查中：准备向量",
-        "model": "检查中：真流程抽样 {done} / {total}"
+        "model": "检查中：真流程检查 {done} / {total}"
       },
       "interruptedHint": "检查没跑完（服务重启或部署打断了它）。点「重新检查」再跑一次。",
-      "model": "真流程抽样{result}：错卡 {wrong}%，{cases} 题，约 ¥{cny}",
-      "modelNotRun": "真流程抽样：未运行"
+      "model": "真流程检查{result}：错卡 {wrong}%，{cases} 题，约 ¥{cny}",
+      "modelNotRun": "真流程检查：未运行"
     },
     "candidates": {
       "search": "搜索话题、问题或例句...",

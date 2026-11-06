@@ -416,10 +416,10 @@ export type FaqReleaseEvalReport = {
   summary: string;
   ranAt: string;
   metrics: Record<string, number>;
-  /** retrieval：没进前 8 的用例；model（真流程抽样）：答错卡或没得到回答的问题（expected / got）。 */
+  /** retrieval：没进前 8 的用例；model（真流程检查）：答错卡或没得到回答的问题（expected / got）。 */
   misses: { nodeId?: string; key?: string; locale: string; source: string; text: string; rank?: number | null; expected?: string; got?: string }[];
   sourceVersion?: number;
-  /** combined：检索检查与真流程抽样各一份。 */
+  /** combined：检索检查与真流程检查各一份。 */
   parts?: FaqReleaseEvalReport[];
 };
 

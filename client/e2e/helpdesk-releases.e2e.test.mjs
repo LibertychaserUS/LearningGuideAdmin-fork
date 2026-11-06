@@ -1,8 +1,8 @@
 // 浏览器 E2E（真 Chromium + Vite dev server，API 全部在浏览器里假装）：锁住发布前的后台检查（owner 2026-11-03
 // 选「抽样跑测试集」）在版本历史里 jsdom 测不到的部分：
-// ① 检查中：状态「Checking」，结果栏显示进度（真流程抽样 n / 300），表格不横向滚动；不能再开一次检查；
+// ① 检查中：状态「Checking」，结果栏显示进度（真流程检查 n / 300），表格不横向滚动；不能再开一次检查；
 // ② 抽屉开着一直连着版本列表的长连接（SSE，真的 EventSource），服务端推进度与结果，页面不重读列表；
-//    出结果后显示真流程抽样那一行（错卡率、题数、约 ¥）。这里每次连接答一帧就断，浏览器按 retry 自己重连，
+//    出结果后显示真流程检查那一行（错卡率、题数、约 ¥）。这里每次连接答一帧就断，浏览器按 retry 自己重连，
 //    所以也锁住了「断了会自己连回来」；
 // ③ 心跳停了：「Check interrupted」+ 提示，可以「Check again」。
 // 运行：npm run test:e2e:helpdesk（本地跑，CI 不装浏览器）。E2E_SHOTS=<目录> 时保存截图。
@@ -99,7 +99,7 @@ const noSideScroll = (page) => page.evaluate(() => document.documentElement.scro
 test('a running check shows its progress; the stream pushes the next progress and the result without re-reading the list', async () => {
   const { page, dialog, state } = await open(running(120))
   const row = v3(page, dialog)
-  await row.getByText('Checking: live-pipeline sample 120 / 300').waitFor()
+  await row.getByText('Checking: live pipeline 120 / 300').waitFor()
   assert.equal(await row.locator('.hdReleaseStatus').textContent(), 'Checking')
   assert.equal(await row.getByRole('button', { name: /^Check again/ }).count(), 0)
   assert.equal(await noSideScroll(page), true)
@@ -107,9 +107,9 @@ test('a running check shows its progress; the stream pushes the next progress an
   const readsAtOpen = state.reads // 打开时读的（开发模式 StrictMode 会读两次）
   // 服务端往前走了：推过来，不用点任何东西
   state.third = running(210)
-  await row.getByText('Checking: live-pipeline sample 210 / 300').waitFor({ timeout: 8000 })
+  await row.getByText('Checking: live pipeline 210 / 300').waitFor({ timeout: 8000 })
   state.third = finished
-  await row.getByText(/^Live-pipeline sample Passed: wrong card 1\.0%, 300 questions, about ¥0\.94/).waitFor({ timeout: 8000 })
+  await row.getByText(/^Live-pipeline check Passed: wrong card 1\.0%, 300 questions, about ¥0\.94/).waitFor({ timeout: 8000 })
   assert.equal(await row.locator('.hdReleaseStatus').textContent(), 'Ready')
   // 打开之后列表一次都没再读，全靠长连接（还重连过）
   assert.equal(state.reads, readsAtOpen)
@@ -131,10 +131,10 @@ test('an interrupted check says so and can be checked again', async () => {
   await page.close()
 })
 
-test('zh-CN: the finished check reads 真流程抽样通过：错卡 1.0%，300 题，约 ¥0.94', async () => {
+test('zh-CN: the finished check reads 真流程检查通过：错卡 1.0%，300 题，约 ¥0.94', async () => {
   const { page, dialog } = await open(finished, 'zh-CN')
   const row = v3(page, dialog)
-  await row.getByText('真流程抽样通过：错卡 1.0%，300 题，约 ¥0.94').waitFor()
+  await row.getByText('真流程检查通过：错卡 1.0%，300 题，约 ¥0.94').waitFor()
   assert.equal(await row.locator('.hdReleaseStatus').textContent(), '待发布')
   await shot(page, 'release-check-finished-zh-CN')
   await page.close()

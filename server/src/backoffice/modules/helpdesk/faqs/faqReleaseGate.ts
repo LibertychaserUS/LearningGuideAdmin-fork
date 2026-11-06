@@ -51,6 +51,21 @@ export type FaqReleaseEvalReport = {
   /** 回滚：快照复制自哪个版本（那一版当时的报告在 sourceReport）。 */
   sourceVersion?: number;
   sourceReport?: unknown;
+  /** 真流程检查按套件与切片的结果（release check v2，release-check/policy.ts）。 */
+  suites?: FaqEvalSuiteResult[];
+  /** 这次检查用了什么（模型、题集、缓存版本……），复查与对账用。 */
+  receipt?: Record<string, string | number>;
+};
+
+/** 一个套件或切片：gate = 不过就不能发布；track = 只看（「不比线上差」仍由全部题那一项拦）。 */
+export type FaqEvalSuiteResult = {
+  id: string;
+  label: string;
+  status: 'gate' | 'track';
+  passed: boolean;
+  n: number;
+  metrics: Record<string, number>;
+  reasons: string[];
 };
 
 export type FaqReleaseGateInput = {
