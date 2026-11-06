@@ -25,12 +25,13 @@ import { cachedStepRunner } from './workflow/cached-step-runner';
 import type { AgentStepRunner } from './workflow/engine';
 
 /**
- * 发布前的真流程抽样检查用的答题器（契约 helpdesk-release-eval.ts）：每个候选版本一个
+ * 发布前的真流程检查用的答题器（契约 helpdesk-release-eval.ts）：每个候选版本一个
  * HelpdeskSuggestService，和线上聊天同一套组装（同一个工作流、检索、精排、模型、时限），只是：
  * - 候选来源钉在这个候选版本的快照上（qaFor，app.module.ts 组装），不读上线的版本；
  * - 不写 helpdesk_suggestions、链路事件只在内存里（读完就删，只拿计价）；
  * - 每个问题一个独立的 learnerId，不受每人每小时的限流影响，也不占真实用户的额度。
- * 问题按 Portal 聊天面板的第一句发（source chat，带 v5 context），不带屏幕上的卡。
+ * 问题按 Portal 聊天面板发（source chat，带 v5 context）：缺省是第一句、屏幕上没有卡；追问（screen）
+ * 和 Portal 一样带屏幕上的卡（context.nodeId，也算刚给学员看过的）与之前的学员原文（recentTurns）。
  *
  * 分层缓存（cache 给了时，contracts/helpdesk-eval-cache.ts）：模型步、精排、问句向量各按输入寻址，
  * 同样的输入不再付钱，命中照原耗时等，结果和真问一样。qaFor 的向量检索要自己包问句向量（cachedFaqEmbedder）。
@@ -98,6 +99,7 @@ export function createReleaseAnswerer(
           locale,
           signal,
           cache = 'use',
+          screen,
         }): Promise<ReleaseEvalAnswer> {
           const runId = uuidv7();
           const stats = emptyAskStats();
@@ -116,8 +118,16 @@ export function createReleaseAnswerer(
                       message,
                       runId,
                       parentRunId: null,
-                      shownFaqIds: [],
-                      context: { sessionId: uuidv7() },
+                      shownFaqIds: screen ? [screen.nodeId] : [],
+                      context: {
+                        sessionId: uuidv7(),
+                        ...(screen
+                          ? {
+                              nodeId: screen.nodeId,
+                              recentTurns: [...screen.recentTurns],
+                            }
+                          : {}),
+                      },
                     },
                     { signal },
                   ),

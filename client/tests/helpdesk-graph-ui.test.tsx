@@ -807,7 +807,7 @@ describe('publish a new version (graph design §5.4)', () => {
       const model = {
         kind: 'model',
         passed: true,
-        summary: 'Live-pipeline sample passed (model): …',
+        summary: 'Live-pipeline check passed (model): …',
         ranAt: '2026-11-03T10:04:00Z',
         metrics: { wrongRate: 0.01, cases: 300, costUsd: 0.12 },
         misses: [],

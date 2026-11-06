@@ -8,7 +8,9 @@ import type {
 import { judgeRelease } from './release-check/policy';
 import {
   changedKeys,
+  followupParents,
   loadReleaseEvalItems,
+  planFollowups,
   planQuestions,
   type ReleaseEvalItem,
 } from './release-check/questions';
@@ -24,7 +26,8 @@ import { runReleaseQuestions } from './release-check/runner';
 /**
  * 发布前的真流程检查（release check v2，owner 2026-11-06 批准；v1 是 2026-11-03 的 300 道抽样）：
  * 免费的检索检查只看检索的前 8 名，不看用户真正看到什么；这里把开发集的全部题与回归题按线上聊天的整条流程
- *（关键词 + 向量召回、精排、小模型选卡作答，契约 helpdesk-release-eval.ts）在候选版本与上线版本上各问一遍。
+ *（关键词 + 向量召回、精排、小模型选卡作答，契约 helpdesk-release-eval.ts）在候选版本与上线版本上各问一遍；
+ * 另加追问题（B5）：屏幕上开着父卡时问子卡的题，只问这一版动过的父卡（父卡、子卡或边改了）。
  * 四块各管一件事（release-check/）：
  * - questions.ts：问哪些题、每题怎么判（判分规则只有一份：contracts/helpdesk-eval-scoring.ts）；
  * - runner.ts：并发问两个版本、新出的错复问确认、漂移抽查、花费与预算；
@@ -115,13 +118,22 @@ export function createModelReleaseGate(
       const regression = deps.regressionCases
         ? await deps.regressionCases().catch(() => [])
         : [];
-      const { questions, skipped, leaked } = planQuestions({
+      const changed = changedKeys(input.previous?.snapshot, input.snapshot);
+      const single = planQuestions({
         items,
         snapshot: input.snapshot,
-        changed: changedKeys(input.previous?.snapshot, input.snapshot),
+        changed,
         regression,
         questionsMax: limits.questionsMax,
       });
+      const { skipped, leaked } = single;
+      const followups = planFollowups({
+        items,
+        snapshot: input.snapshot,
+        parents: followupParents(input.previous?.snapshot, input.snapshot),
+        changed,
+      }).slice(0, Math.max(0, limits.questionsMax - single.questions.length));
+      const questions = [...single.questions, ...followups];
       if (questions.length === 0)
         return report(
           false,

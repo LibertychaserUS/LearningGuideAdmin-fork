@@ -1,5 +1,5 @@
 // 浏览器 E2E（真 Chromium + Vite dev server，API 全部在浏览器里假装）：锁住发布前的后台检查（owner 2026-11-03
-// 选「抽样跑测试集」）在版本历史里 jsdom 测不到的部分：
+// 选「抽样跑测试集」，v2 起问全部题）在版本历史里 jsdom 测不到的部分：
 // ① 检查中：状态「Checking」，结果栏显示进度（真流程检查 n / 300），表格不横向滚动；不能再开一次检查；
 // ② 抽屉开着一直连着版本列表的长连接（SSE，真的 EventSource），服务端推进度与结果，页面不重读列表；
 //    出结果后显示真流程检查那一行（错卡率、题数、约 ¥）。这里每次连接答一帧就断，浏览器按 retry 自己重连，
@@ -44,7 +44,7 @@ function release(version, patch = {}) {
 }
 
 const model = {
-  kind: 'model', passed: true, summary: 'Live-pipeline sample passed (model): 1.0% wrong card on 300 questions.', ranAt: '2026-11-03T09:04:00Z',
+  kind: 'model', passed: true, summary: 'Live-pipeline check passed (model): wrong card 1.0% over 300 questions.', ranAt: '2026-11-03T09:04:00Z',
   metrics: { cases: 300, wrongCards: 3, wrongRate: 0.01, errors: 0, costUsd: 0.13 }, misses: [],
 }
 const running = (done) => release(3, { status: 'evaluating', publishedAt: null, evalReport: null, evaluation: { state: 'running', startedAt: '2026-11-03T09:00:00Z', progress: { stage: 'model', done, total: 300 } } })
@@ -127,7 +127,7 @@ test('an interrupted check says so and can be checked again', async () => {
   await row.getByRole('button', { name: /^Check again/ }).click()
   await dialog.getByText('v3 is being checked again.').waitFor()
   assert.equal(state.third.evaluation.state, 'running')
-  await row.getByText('Checking: live-pipeline sample 0 / 300').waitFor()
+  await row.getByText('Checking: live pipeline 0 / 300').waitFor()
   await page.close()
 })
 

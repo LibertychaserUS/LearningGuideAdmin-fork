@@ -1,5 +1,5 @@
 /**
- * 发布前的真流程抽样检查（owner 2026-11-03 选「抽样跑测试集」）的交接契约：BackOffice 的发布门
+ * 发布前的真流程检查（release check v2；v1 是 owner 2026-11-03 选的「抽样跑测试集」）的交接契约：BackOffice 的发布门
  * 只经这里的 ReleaseAnswerer 问 Agent；实现在 src/ai/helpdesk/release-answerer.ts（和线上聊天同一个
  * HelpdeskSuggestService：关键词 + 向量召回、精排、小模型选卡作答），由 app.module.ts 组装。
  * 没有组装（测试、只有 ks 角色）= 不问模型。
@@ -46,6 +46,11 @@ export type ReleaseEvalSession = {
     signal?: AbortSignal;
     /** 缓存怎么用（缺省 use）：refresh = 漂移抽查，bypass = 复问新出的错。 */
     cache?: EvalCacheMode;
+    /**
+     * 追问（B5）：学员屏幕上正开着的卡（节点 id）与之前的学员原文（旧的在前，至多 3 条），
+     * 和 Portal 发的 context.nodeId / recentTurns 一样；不给 = 聊天面板的第一句。
+     */
+    screen?: { nodeId: string; recentTurns: readonly string[] };
   }): Promise<ReleaseEvalAnswer>;
 };
 

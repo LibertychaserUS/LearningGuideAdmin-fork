@@ -20,6 +20,10 @@ import {
   type EvalQuestion,
   type ReleaseEvalItem,
 } from '../modules/helpdesk/faqs/faqReleaseModelGate';
+import {
+  followupParents,
+  planFollowups,
+} from '../modules/helpdesk/faqs/release-check/questions';
 import { wilson } from '../modules/helpdesk/faqs/release-check/stats';
 
 /**
@@ -123,6 +127,9 @@ type Asked = {
   message: string;
   locale: string;
   cache: EvalCacheMode;
+  /** 追问：屏幕上开着的卡（节点 id）。 */
+  screen: string | null;
+  recentTurns: readonly string[];
 };
 
 /** 假答题器：reply 看得到问的是哪一版、缓存怎么用。 */
@@ -135,8 +142,15 @@ function fakeAnswerer(
     available: () => available,
     model: () => 'google/gemma-4-31b-it',
     forRelease: ({ version }) => ({
-      ask: ({ message, locale, cache = 'use' }) => {
-        const one = { version, message, locale, cache };
+      ask: ({ message, locale, cache = 'use', screen }) => {
+        const one = {
+          version,
+          message,
+          locale,
+          cache,
+          screen: screen?.nodeId ?? null,
+          recentTurns: screen?.recentTurns ?? [],
+        };
         asked.push(one);
         return Promise.resolve(reply(message, one));
       },
@@ -547,7 +561,8 @@ describe('the live-pipeline check: pass or fail', () => {
       now: fixed,
     }).evaluate(input());
     expect(broken.passed).toBe(false);
-    expect(broken.metrics.errors).toBe(5);
+    // 5 single questions + the follow-up on refund-late (no live version: every parent is asked)
+    expect(broken.metrics.errors).toBe(6);
     expect(broken.summary).toContain('got no answer');
   });
 
@@ -608,5 +623,228 @@ describe('the live-pipeline check: pass or fail', () => {
     expect(replaced.passed).toBe(false);
     expect(replaced.summary).toBe('The check was replaced by a newer one');
     expect(replaced.metrics.cases).toBe(2);
+  });
+});
+
+describe('the live-pipeline check: follow-ups (B5, parent card on screen)', () => {
+  // refund → refund-late; password → refund-late as well (two parents); password → reset (one parent)
+  const two: FaqReleaseSnapshot = {
+    nodes: [
+      node(1, 'refund'),
+      node(2, 'refund-late', false),
+      node(3, 'password'),
+      node(4, 'reset', false),
+    ],
+    edges: [
+      ...snapshot.edges,
+      {
+        parentId: id(3),
+        childId: id(2),
+        kind: 'follow_up',
+        position: 1,
+        labelEn: null,
+        labelZh: null,
+      },
+      {
+        parentId: id(3),
+        childId: id(4),
+        kind: 'follow_up',
+        position: 0,
+        labelEn: null,
+        labelZh: null,
+      },
+    ],
+    phrasings: [],
+  };
+  const lateItems: ReleaseEvalItem[] = [
+    {
+      id: 'l1',
+      locale: 'en-GB',
+      message: 'late one',
+      expect: 'answer',
+      faq: 'refund-late',
+    },
+    {
+      id: 'l2',
+      locale: 'zh-TW',
+      message: '晚了',
+      expect: 'answer',
+      faq: 'refund-late',
+    },
+    {
+      id: 'r1',
+      locale: 'zh-CN',
+      message: '重设',
+      expect: 'answer',
+      faq: 'reset',
+    },
+    {
+      id: 'e1',
+      locale: 'zh-CN',
+      message: '退款',
+      expect: 'answer',
+      faq: 'refund',
+    },
+    { id: 'n1', locale: 'en-GB', message: 'homework', expect: 'no_match' },
+  ];
+
+  it('asks the dev questions of a child card with its parent on screen, the parent question as the earlier turn, and gives each edge its turn', () => {
+    const followups = planFollowups({
+      items: lateItems,
+      snapshot: two,
+      parents: null,
+      changed: new Set(),
+    });
+    expect(followups.map((q) => [q.id, q.faqId, q.screen?.key])).toEqual([
+      ['followup:l1', id(2), 'refund'],
+      ['followup:l2', id(2), 'password'],
+      ['followup:r1', id(4), 'password'],
+    ]);
+    expect(followups[0]).toMatchObject({
+      set: 'followup',
+      locale: 'en-GB',
+      entryIds: [],
+      screen: { nodeId: id(1), recentTurns: ['Q refund'] },
+    });
+    // zh-TW is sent as zh-CN, and the earlier turn is the parent's Chinese question
+    expect(followups[1]).toMatchObject({
+      locale: 'zh-CN',
+      language: 'zh-TW',
+      screen: { recentTurns: ['问 password'] },
+    });
+    // only the parents this release touched
+    expect(
+      planFollowups({
+        items: lateItems,
+        snapshot: two,
+        parents: new Set([id(3)]),
+        changed: new Set(),
+      }).map((q) => q.id),
+    ).toEqual(['followup:l2', 'followup:r1']);
+  });
+
+  it('a parent is asked again when it, a child, a child phrasing or one of its edges changed; nothing changed = nothing asked; no live version = all', () => {
+    expect(followupParents(null, two)).toBeNull();
+    expect(followupParents(two, two)).toEqual(new Set());
+    const childEdited: FaqReleaseSnapshot = {
+      ...two,
+      nodes: two.nodes.map((n) =>
+        n.id === id(4) ? { ...n, answerEn: 'new words' } : n,
+      ),
+    };
+    expect(followupParents(two, childEdited)).toEqual(new Set([id(3)]));
+    // refund-late has two parents: both see the change
+    const phrasing: FaqReleaseSnapshot = {
+      ...two,
+      phrasings: [{ faqId: id(2), locale: 'en-GB', text: 'is it too late' }],
+    };
+    expect(followupParents(two, phrasing)).toEqual(new Set([id(1), id(3)]));
+    const edgeMoved: FaqReleaseSnapshot = {
+      ...two,
+      edges: two.edges.map((e) =>
+        e.childId === id(4) ? { ...e, position: 5 } : e,
+      ),
+    };
+    expect(followupParents(two, edgeMoved)).toEqual(new Set([id(3)]));
+    const edgeRemoved: FaqReleaseSnapshot = {
+      ...two,
+      edges: two.edges.filter((e) => e.childId !== id(4)),
+    };
+    expect(followupParents(two, edgeRemoved)).toEqual(new Set([id(3)]));
+  });
+
+  it('asks follow-ups with the card on screen, keeps them out of the single-question gate and slices, and tracks their rate', async () => {
+    const singles = refunds(250);
+    const { answerer, asked } = fakeAnswerer((message, a) =>
+      a.screen !== null
+        ? // the same answers on both versions: two of three follow-ups get a wrong card, tracked, not a fail
+          answer('answer', message === 'late one' ? id(3) : id(4))
+        : right(message),
+    );
+    const edited: FaqReleaseSnapshot = {
+      ...two,
+      nodes: two.nodes.map((n) =>
+        n.id === id(2) ? { ...n, answerEn: 'new words' } : n,
+      ),
+    };
+    const report = await createModelReleaseGate({
+      answerer,
+      items: () => [...singles, ...lateItems],
+      now: fixed,
+    }).evaluate(
+      input({
+        snapshot: edited,
+        previous: { version: 1, evalReport: null, snapshot: two },
+      }),
+    );
+    // refund-late changed: both of its parents are asked again, with every child question under them
+    //（a sibling changes the candidates the model picks from）
+    const onScreen = asked.filter((a) => a.screen !== null);
+    expect(
+      onScreen
+        .filter((a) => a.version === 2)
+        .map((a) => [a.message, a.screen])
+        .sort(),
+    ).toEqual([
+      ['late one', id(1)],
+      ['晚了', id(3)],
+      ['重设', id(3)],
+    ]);
+    expect(onScreen.filter((a) => a.version === 1)).toHaveLength(3);
+    expect(report.metrics).toMatchObject({
+      followupCases: 3,
+      followupWrong: 2,
+      followupWrongRate: 0.6667,
+      // the single-question numbers do not include follow-ups
+      cases: 255,
+      wrongCards: 0,
+      confirmedWorse: 0,
+    });
+    const suites = new Map(report.suites?.map((s) => [s.id, s]));
+    expect(suites.get('followup')).toMatchObject({
+      status: 'track',
+      n: 3,
+      passed: true,
+    });
+    expect(suites.get('combined')?.n).toBe(255);
+    expect(suites.get('language:en-GB')?.n).toBe(
+      singles.filter((i) => i.locale === 'en-GB').length + 2,
+    );
+    expect(report.passed).toBe(true);
+  });
+
+  it('a follow-up newly wrong against the live version fails the check, and the miss names the card on screen', async () => {
+    const { answerer } = fakeAnswerer((message, a) =>
+      a.screen !== null && a.version === 2
+        ? answer('answer', id(3))
+        : a.screen !== null
+          ? answer('answer', id(2))
+          : right(message),
+    );
+    const edited: FaqReleaseSnapshot = {
+      ...two,
+      nodes: two.nodes.map((n) =>
+        n.id === id(4) ? { ...n, answerEn: 'new words' } : n,
+      ),
+    };
+    const report = await createModelReleaseGate({
+      answerer,
+      // l1 is asked under refund (not touched); l2 and r1 under password, whose child reset changed
+      items: () => [...refunds(250), ...lateItems],
+      now: fixed,
+    }).evaluate(
+      input({
+        snapshot: edited,
+        previous: { version: 1, evalReport: null, snapshot: two },
+      }),
+    );
+    expect(report.passed).toBe(false);
+    expect(report.summary).toContain('newly wrong against the live version');
+    expect(report.misses[0]).toMatchObject({
+      set: 'followup',
+      why: 'newly_wrong',
+      onScreen: 'password',
+      live: 'answer:refund-late',
+    });
   });
 });

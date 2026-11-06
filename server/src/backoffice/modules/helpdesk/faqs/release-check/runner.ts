@@ -135,6 +135,14 @@ export async function runReleaseQuestions(input: {
       locale: q.locale,
       signal: input.signal,
       cache: mode,
+      ...(q.screen
+        ? {
+            screen: {
+              nodeId: q.screen.nodeId,
+              recentTurns: q.screen.recentTurns,
+            },
+          }
+        : {}),
     });
     spend.total += got.costUsd;
     spend[bucket] += got.costUsd;

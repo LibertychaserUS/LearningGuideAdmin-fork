@@ -5,6 +5,7 @@ import type { ReleaseEvalAnswer } from '../../../../../contracts/helpdesk-releas
 import { confirmedWorse, type Judgement } from './policy';
 import type { EvalQuestion } from './questions';
 import type { QuestionResult, RunResult } from './runner';
+import { rate } from './stats';
 
 /**
  * 发布前检查的报告（release check v2）：界面读的 metrics 键不变（cases、wrongRate、costUsd），
@@ -20,6 +21,8 @@ export type ModelEvalMiss = {
   got: string;
   /** 上线版本这题给的（没有上线版本 = 不写）。 */
   live?: string;
+  /** 追问：屏幕上开着的父卡（key）。 */
+  onScreen?: string;
   why: 'newly_wrong' | 'wrong_card' | 'timeout' | 'error';
 };
 
@@ -75,6 +78,7 @@ export function missesOf(
       expected: label(r.q, keyOf),
       got: gotLabel(r.candidate.got, keyOf),
       ...(r.live ? { live: gotLabel(r.live.got, keyOf) } : {}),
+      ...(r.q.screen ? { onScreen: r.q.screen.key } : {}),
       why,
     }));
 }
@@ -83,7 +87,9 @@ export function missesOf(
 export function questionsHash(questions: readonly EvalQuestion[]): string {
   const hash = createHash('sha256');
   for (const q of questions)
-    hash.update(`${q.id}\n${q.message}\n${q.faqId ?? q.expect}\n`);
+    hash.update(
+      `${q.id}\n${q.message}\n${q.faqId ?? q.expect}\n${q.screen ? `${q.screen.nodeId}\n` : ''}`,
+    );
   return hash.digest('hex').slice(0, 16);
 }
 
@@ -96,6 +102,14 @@ export function releaseCheckMetrics(input: {
 }): Record<string, number> {
   const { run, judgement } = input;
   const c = judgement.combined;
+  const all = judgement.everything;
+  const followups = run.results.filter((r) => r.q.set === 'followup');
+  const followupScored = followups.filter(
+    (r) => !r.candidate.score.error && !r.candidate.score.timeout,
+  );
+  const followupWrong = followupScored.filter(
+    (r) => r.candidate.score.wrongCard,
+  ).length;
   const saved =
     run.cache.embed.savedUsd +
     run.cache.rerank.savedUsd +
@@ -109,6 +123,9 @@ export function releaseCheckMetrics(input: {
     s650Cases: run.results.filter((r) => r.q.set === 's650').length,
     regressionCases: run.results.filter((r) => r.q.set === 'regression').length,
     changedCases: run.results.filter((r) => r.q.changed).length,
+    followupCases: followups.length,
+    followupWrong,
+    followupWrongRate: rate(followupWrong, followupScored.length),
     wrongCards: c.wrong,
     wrongRate: c.wrongRate,
     wrongRateHigh: c.wrongHigh,
@@ -117,11 +134,11 @@ export function releaseCheckMetrics(input: {
     cardWhenNone: c.cardWhenNone,
     cardWhenNoneRate: c.cardWhenNoneRate,
     extraCards: c.extraCards,
-    timeouts: c.timeouts,
-    errors: c.errors,
-    newlyWrong: c.newlyWrong,
-    confirmedWorse: c.confirmedWorse,
-    fixed: c.fixed,
+    timeouts: all.timeouts,
+    errors: all.errors,
+    newlyWrong: all.newlyWrong,
+    confirmedWorse: all.confirmedWorse,
+    fixed: all.fixed,
     ...(c.liveWrongRate === null ? {} : { liveWrongRate: c.liveWrongRate }),
     ...(input.previousWrongRate === null
       ? {}
@@ -172,8 +189,9 @@ export function releaseCheckSummary(input: {
   run: RunResult;
 }): string {
   const c = input.judgement.combined;
+  const all = input.judgement.everything;
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
   if (!input.passed)
     return `Live-pipeline check failed (${input.model}): ${input.judgement.reasons.join('; ')}`;
-  return `Live-pipeline check passed (${input.model}): wrong card ${pct(c.wrongRate)} (95% upper ${pct(c.wrongHigh)}) over ${c.scored} questions, ${c.confirmedWorse} newly wrong, $${input.run.spend.total.toFixed(3)}`;
+  return `Live-pipeline check passed (${input.model}): wrong card ${pct(c.wrongRate)} (95% upper ${pct(c.wrongHigh)}) over ${c.scored} questions, ${all.confirmedWorse} newly wrong, $${input.run.spend.total.toFixed(3)}`;
 }

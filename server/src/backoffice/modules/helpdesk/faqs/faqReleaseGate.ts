@@ -366,7 +366,7 @@ export function createFaqReleaseGate(options: {
             kind: 'model',
             passed: false,
             summary:
-              'The live-pipeline sample did not run because the retrieval eval failed',
+              'The live-pipeline check did not run because the retrieval eval failed',
             ranAt: now().toISOString(),
             metrics: {},
             misses: [],

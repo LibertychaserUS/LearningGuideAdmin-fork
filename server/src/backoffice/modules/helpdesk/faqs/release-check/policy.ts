@@ -13,6 +13,8 @@ import { rate, wilson } from './stats';
  * - 库里没卡却给卡（期望不出卡的题出了卡）≤ cardWhenNoneMax（3%；目标 0.3%，见 doc）；
  * - 不比线上差（所有套件）：和上线版本逐题比，候选版本新出的错、复问后仍错（reaskConfirm 次）→ 不通过；
  * - 检查不算数：没得到回答（不含超时）超过 errorRateMax，或漂移抽查变了超过 driftMax 道。
+ * - 追问（B5，屏幕上开着父卡）：自成一个套件，track（还没有基线，到了 2% 再改 gate），不进全部题、语言与
+ *   写法切片（那些是单问的数）；「不比线上差」照样拦。
  * 超时 = 学员没拿到答案：不算错卡，但算没答上（答对率的分母里有它）。
  */
 export type PolicyLimits = {
@@ -38,7 +40,10 @@ export type Judgement = {
   invalid: boolean;
   reasons: string[];
   suites: FaqEvalSuiteResult[];
+  /** 全部单问（不含追问）：错卡率门槛与界面上的主数字。 */
   combined: SuiteNumbers;
+  /** 真的问了的全部题（含追问）：没得到回答的比例与「新出的错」按它数。 */
+  everything: SuiteNumbers;
   /** 确认变差的题（复问后仍错）。 */
   regressed: QuestionResult[];
 };
@@ -117,6 +122,9 @@ export function suiteNumbers(
   };
 }
 
+/** 单问（不是追问）：全部题、语言与写法切片只数它。 */
+const single = (r: QuestionResult) => r.q.set !== 'followup';
+
 function slices(results: readonly QuestionResult[]): Slice[] {
   const fixed: Slice[] = [
     {
@@ -124,7 +132,7 @@ function slices(results: readonly QuestionResult[]): Slice[] {
       label: 'All questions',
       status: 'gate',
       rule: 'interval',
-      pick: () => true,
+      pick: single,
     },
     {
       id: 's650',
@@ -148,16 +156,24 @@ function slices(results: readonly QuestionResult[]): Slice[] {
       pick: (r) => r.q.set === 'regression',
     },
     {
+      id: 'followup',
+      label: 'Follow-ups (parent card on screen)',
+      status: 'track',
+      rule: 'paired',
+      pick: (r) => r.q.set === 'followup',
+    },
+    {
       id: 'changed',
       label: 'Questions on changed cards',
       status: 'track',
       rule: 'paired',
-      pick: (r) => r.q.changed,
+      pick: (r) => single(r) && r.q.changed,
     },
   ];
-  const languages = [...new Set(results.map((r) => r.q.language))].sort();
+  const singles = results.filter(single);
+  const languages = [...new Set(singles.map((r) => r.q.language))].sort();
   const styles = [
-    ...new Set(results.map((r) => r.q.style).filter((s) => s !== null)),
+    ...new Set(singles.map((r) => r.q.style).filter((s) => s !== null)),
   ].sort();
   return [
     ...fixed,
@@ -166,14 +182,14 @@ function slices(results: readonly QuestionResult[]): Slice[] {
       label: `Language ${language}`,
       status: 'gate',
       rule: 'point',
-      pick: (r) => r.q.language === language,
+      pick: (r) => single(r) && r.q.language === language,
     })),
     ...styles.map((style): Slice => ({
       id: `style:${style}`,
       label: `Style ${style}`,
       status: 'gate',
       rule: 'point',
-      pick: (r) => r.q.style === style,
+      pick: (r) => single(r) && r.q.style === style,
     })),
   ];
 }
@@ -184,7 +200,8 @@ export function judgeRelease(
 ): Judgement {
   const { results } = run;
   const reasons: string[] = [];
-  const combined = suiteNumbers(results, limits.reaskConfirm);
+  const combined = suiteNumbers(results.filter(single), limits.reaskConfirm);
+  const everything = suiteNumbers(results, limits.reaskConfirm);
   const suites: FaqEvalSuiteResult[] = [];
   for (const slice of slices(results)) {
     const rows = results.filter(slice.pick);
@@ -241,23 +258,25 @@ export function judgeRelease(
     if (status === 'gate' && own.length > 0)
       reasons.push(`${slice.label}: ${own.join('; ')}`);
   }
-  // 新出的错在任何套件都拦；全部题那一项已经列了，不重复
-  if (
-    combined.confirmedWorse > 0 &&
-    !reasons.some((r) => r.startsWith('All questions'))
-  )
+  // 新出的错在任何套件（含追问）都拦；全部题那一项已经列过的不重复
+  const worseElsewhere =
+    everything.confirmedWorse -
+    (reasons.some((r) => r.startsWith('All questions'))
+      ? combined.confirmedWorse
+      : 0);
+  if (worseElsewhere > 0)
     reasons.push(
-      `${combined.confirmedWorse} question(s) newly wrong against the live version`,
+      `${worseElsewhere} question(s) newly wrong against the live version`,
     );
   if (combined.cardWhenNoneRate > limits.cardWhenNoneMax)
     reasons.push(
       `a card was shown for ${pct(combined.cardWhenNoneRate)} of questions the library has no card for > ${pct(limits.cardWhenNoneMax)}`,
     );
   const invalid: string[] = [];
-  const errorRate = rate(combined.errors, combined.n);
+  const errorRate = rate(everything.errors, everything.n);
   if (errorRate > limits.errorRateMax)
     invalid.push(
-      `${combined.errors} of ${combined.n} questions got no answer (model or balance problem), so the check does not count`,
+      `${everything.errors} of ${everything.n} questions got no answer (model or balance problem), so the check does not count`,
     );
   if (run.drift.changed > limits.driftMax)
     invalid.push(
@@ -269,6 +288,7 @@ export function judgeRelease(
     reasons: [...invalid, ...reasons],
     suites,
     combined,
+    everything,
     regressed: results.filter((r) => confirmedWorse(r, limits.reaskConfirm)),
   };
 }

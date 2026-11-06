@@ -257,7 +257,7 @@ describe('release actions', () => {
     assert.doesNotMatch(JSON.stringify(zhCN.helpDesk.releases), /学员/)
   })
 
-  test('the live-pipeline sample report is found inside a combined report', () => {
+  test('the live-pipeline check report is found inside a combined report', () => {
     const model = { kind: 'model', passed: true, summary: 'ok', ranAt: '', metrics: { wrongRate: 0.006, cases: 312, costUsd: 0.13 }, misses: [] }
     const combined = { kind: 'combined', passed: true, summary: '', ranAt: '', metrics: { recallAt8: 0.97 }, misses: [], parts: [{ ...model, kind: 'retrieval' }, model] }
     assert.equal(modelReport(combined), model)

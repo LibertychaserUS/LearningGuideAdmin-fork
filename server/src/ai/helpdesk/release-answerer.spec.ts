@@ -1,6 +1,7 @@
 import { createMemoryEvalCacheStore } from '../../contracts/helpdesk-eval-cache';
 import type {
   HelpdeskQaCandidate,
+  HelpdeskQaSearch,
   HelpdeskQaSource,
 } from '../../contracts/helpdesk-qa';
 import { createReleaseAnswerer } from './release-answerer';
@@ -11,8 +12,8 @@ import type {
 } from './workflow/engine';
 
 /**
- * 发布前真流程抽样检查的答题器（契约 helpdesk-release-eval.ts）：候选来源钉在候选版本上（qaFor），
- * 按聊天面板的第一句问，回出了哪张卡；没有 key、出错 → error（不算答错）。模型是假的 runner。
+ * 发布前真流程检查的答题器（契约 helpdesk-release-eval.ts）：候选来源钉在候选版本上（qaFor），
+ * 按聊天面板的第一句问（追问带屏幕上的卡），回出了哪张卡；没有 key、出错 → error（不算答错）。模型是假的 runner。
  */
 const id = (n: number) =>
   `0192dddd-0000-7000-8000-${String(n).padStart(12, '0')}`;
@@ -43,8 +44,12 @@ function setup(
   cache?: ReturnType<typeof createMemoryEvalCacheStore>,
 ) {
   const pinned: { version: number; snapshot: unknown }[] = [];
+  const searches: HelpdeskQaSearch[] = [];
   const qa: HelpdeskQaSource = {
-    findCandidates: () => Promise.resolve([RESET]),
+    findCandidates: (search) => {
+      searches.push(search);
+      return Promise.resolve([RESET]);
+    },
     findPublished: (faqId) =>
       Promise.resolve(faqId === RESET.id ? { ...RESET, score: 0 } : null),
     findPopular: () => Promise.resolve([]),
@@ -63,7 +68,7 @@ function setup(
     env: () => env,
     ...(cache ? { cache } : {}),
   });
-  return { answerer, pinned, run };
+  return { answerer, pinned, run, searches };
 }
 
 const called = (args: Record<string, string>): Promise<AgentStepOutcome> =>
@@ -104,6 +109,36 @@ describe('release answerer (live pipeline on a candidate release)', () => {
       expect(
         (await session.ask({ message: `password ${i}`, locale: 'en-GB' })).kind,
       ).toBe('answer');
+  });
+
+  it('a follow-up is asked like Portal sends it: the card on screen leads the search and is never shown again, with the earlier turn', async () => {
+    const PARENT = id(9);
+    const { answerer, searches, run } = setup((spec) =>
+      spec.tool.name === 'explain'
+        ? called({ covered: 'no' })
+        : called({ intent: 'question', faqId: RESET.id, confidence: 'sure' }),
+    );
+    const got = await answerer
+      .forRelease({ version: 7, snapshot: { nodes: [] } })
+      .ask({
+        message: 'and if I forgot it again?',
+        locale: 'en-GB',
+        screen: { nodeId: PARENT, recentTurns: ['How do I sign in?'] },
+      });
+    expect(got).toMatchObject({ kind: 'answer', nodeId: RESET.id });
+    expect(searches.some((s) => s.nodeId === PARENT)).toBe(true);
+    // the earlier turn goes to the model step (the search only reads it when the reranker is on)
+    expect(
+      run.mock.calls.some(([spec]) =>
+        JSON.stringify(spec).includes('How do I sign in?'),
+      ),
+    ).toBe(true);
+    // a first question has no card on screen
+    searches.length = 0;
+    await answerer
+      .forRelease({ version: 7, snapshot: { nodes: [] } })
+      .ask({ message: 'forgot my password', locale: 'en-GB' });
+    expect(searches.every((s) => s.nodeId === undefined)).toBe(true);
   });
 
   it('a model that picks nothing is no card; a model error is an error, never a wrong card', async () => {

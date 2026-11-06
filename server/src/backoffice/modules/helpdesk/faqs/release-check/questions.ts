@@ -35,7 +35,8 @@ export type ReleaseEvalItem = {
   acceptable?: string[];
 };
 
-export const EVAL_SETS = ['blind', 's650', 'regression'] as const;
+/** followup = B5 追问：屏幕上开着父卡时问子卡的题（开发集的原句，见 planFollowups）。 */
+export const EVAL_SETS = ['blind', 's650', 'regression', 'followup'] as const;
 export type EvalSet = (typeof EVAL_SETS)[number];
 
 export type EvalQuestion = {
@@ -55,8 +56,10 @@ export type EvalQuestion = {
   acceptable: string[];
   /** 通向标注卡的入口卡（节点 id）：出它也算对，单独数（viaEntry）。 */
   entryIds: string[];
-  /** 标的卡这一版相对上线版本新增或改过。 */
+  /** 标的卡这一版相对上线版本新增或改过（追问：子卡、父卡或它们之间的边改过）。 */
   changed: boolean;
+  /** 追问：屏幕上开着的父卡（节点 id 与 key）与之前的学员原文；单问 = null。 */
+  screen: { nodeId: string; key: string; recentTurns: string[] } | null;
 };
 
 const DEFAULT_SET = join(__dirname, '..', 'release-eval', 'eval-v6-dev.jsonl');
@@ -172,6 +175,7 @@ export function planQuestions(input: {
       acceptable: gold.slice(1),
       entryIds: entriesFor(gold),
       changed: gold.some((id) => changedIds.has(id)),
+      screen: null,
     });
   }
   let index = 0;
@@ -198,6 +202,7 @@ export function planQuestions(input: {
       acceptable: [],
       entryIds: entriesFor([one.faqId]),
       changed: changedIds.has(one.faqId),
+      screen: null,
     });
   }
   const max = input.questionsMax ?? Infinity;
@@ -206,6 +211,118 @@ export function planQuestions(input: {
     skipped: skipped + Math.max(0, questions.length - max),
     leaked,
   };
+}
+
+/**
+ * 追问要重问的父卡（B5，doc「改了边或父卡时，只跑受影响的边」）：父卡自己、它的任何一个子卡新增或改过
+ *（字段或问法），或它下面的边加了、删了、改了。没有上线版本可比 → null（全部父卡都问）。
+ * 父卡下的子卡全部排在候选最前（HelpdeskQaSearch.nodeId），所以兄弟卡的变化也会影响追问选卡。
+ */
+export function followupParents(
+  previous: FaqReleaseSnapshot | null | undefined,
+  snapshot: FaqReleaseSnapshot,
+): Set<string> | null {
+  if (!previous) return null;
+  const diff = diffSnapshots(previous, snapshot);
+  const touched = new Set(
+    [...diff.nodes.added, ...diff.nodes.changed].map((node) => node.id),
+  );
+  const phrasingsOf = (s: FaqReleaseSnapshot) => {
+    const out = new Map<string, string[]>();
+    for (const p of s.phrasings)
+      out.set(p.faqId, [...(out.get(p.faqId) ?? []), `${p.locale}\n${p.text}`]);
+    return new Map(
+      [...out].map(([id, texts]) => [id, JSON.stringify(texts.sort())]),
+    );
+  };
+  const before = phrasingsOf(previous);
+  for (const [id, texts] of phrasingsOf(snapshot))
+    if (before.get(id) !== texts) touched.add(id);
+  for (const id of before.keys())
+    if (!snapshot.phrasings.some((p) => p.faqId === id)) touched.add(id);
+  const parents = new Set<string>();
+  for (const edge of snapshot.edges)
+    if (touched.has(edge.parentId) || touched.has(edge.childId))
+      parents.add(edge.parentId);
+  for (const edge of [...diff.edges.added, ...diff.edges.removed])
+    parents.add(edge.parentId);
+  for (const change of diff.edges.changed) parents.add(change.after.parentId);
+  return parents;
+}
+
+/**
+ * B5 追问题：开发集里标的卡（或也算对的卡）是某张卡的子卡的题，屏幕上开着那张父卡再问一遍——和 Portal
+ * 一样带 context.nodeId 与之前的学员原文（父卡在学员那种语言的问题）。期望出标的卡；父卡已在屏幕上、
+ * 不算入口（entryIds 空），再出别的卡就是错卡。一张子卡有几张父卡时，它的题按 id 轮流分给各父卡，
+ * 每条边都考到。只问 parents 里的父卡（followupParents；null = 全部）。题的原句是开发集的独立写法，
+ * 不是卡自己的问法；测试集从不进来。
+ */
+export function planFollowups(input: {
+  items: readonly ReleaseEvalItem[];
+  snapshot: FaqReleaseSnapshot;
+  parents: ReadonlySet<string> | null;
+  changed: ReadonlySet<string>;
+}): EvalQuestion[] {
+  const byId = new Map(input.snapshot.nodes.map((n) => [n.id, n]));
+  const idOfKey = new Map(input.snapshot.nodes.map((n) => [n.key, n.id]));
+  const changedIds = new Set(
+    [...input.changed]
+      .map((key) => idOfKey.get(key))
+      .filter((id): id is string => id !== undefined),
+  );
+  const parentsOf = new Map<string, string[]>();
+  for (const e of input.snapshot.edges)
+    parentsOf.set(e.childId, [...(parentsOf.get(e.childId) ?? []), e.parentId]);
+  for (const list of parentsOf.values()) list.sort();
+  const turns = new Map<string, number>();
+  const seen = new Set<string>();
+  const out: EvalQuestion[] = [];
+  for (const item of [...input.items].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  )) {
+    if (item.expect !== 'answer' || !item.faq) continue;
+    const main = idOfKey.get(item.faq);
+    if (!main) continue;
+    const parents = parentsOf.get(main) ?? [];
+    if (parents.length === 0) continue;
+    const turn = turns.get(main) ?? 0;
+    turns.set(main, turn + 1);
+    const parentId = parents[turn % parents.length];
+    const parent = byId.get(parentId);
+    if (!parent) continue;
+    if (input.parents && !input.parents.has(parentId)) continue;
+    const text = item.message.trim();
+    const dedupe = `${parentId}\n${text}`;
+    if (text === '' || seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    const also = (item.acceptable ?? [])
+      .map((key) => idOfKey.get(key))
+      .filter((id): id is string => id !== undefined && id !== main);
+    const locale = serviceLocale(item.locale);
+    const said = locale === 'en-GB' ? parent.questionEn : parent.questionZh;
+    out.push({
+      id: `followup:${item.id}`,
+      set: 'followup',
+      language: item.locale,
+      style: item.style ?? null,
+      locale,
+      message: item.message,
+      expect: 'answer',
+      faqId: main,
+      acceptable: [...new Set(also)].filter((id) => id !== parentId),
+      entryIds: [],
+      changed:
+        changedIds.has(main) ||
+        changedIds.has(parentId) ||
+        (input.parents?.has(parentId) ?? false),
+      screen: {
+        nodeId: parentId,
+        key: parent.key,
+        recentTurns: said.trim() === '' ? [] : [said],
+      },
+    });
+  }
+  return out;
 }
 
 /** 一题的期望（评测脚本的 TurnExpectation）。 */
