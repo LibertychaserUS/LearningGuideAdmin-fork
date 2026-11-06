@@ -141,7 +141,8 @@ test('zh-CN: the finished check reads 真流程检查通过：错卡 1.0%，300 
 })
 
 // release check v2：全部题、套件与切片、按轻重排好的问题、花费与缓存、重复问法；开始前的估计
-const ruleOf = (id) => (id.includes(':') ? 'point' : id === 'followup' || id === 'changed' ? 'paired' : 'interval')
+// as policy.ts: combined and S650 use the 95% upper bound, slices the point rate, the rest only 'not worse than live'
+const ruleOf = (id) => (id.includes(':') ? 'point' : id === 'combined' || id === 's650' ? 'interval' : 'paired')
 const suite = (id, label, status, n, wrongRate, wrongRateHigh, extra = {}) => ({
   id, label, status, rule: ruleOf(id), passed: true, n, reasons: [], metrics: { wrongRate, wrongRateHigh, confirmedWorse: 0, scored: n }, ...extra,
 })
@@ -158,7 +159,7 @@ const v2Model = {
   suites: [
     suite('combined', 'All questions', 'gate', 1684, 0.0054, 0.0101, { passed: false, reasons: ['1 question(s) newly wrong against the live version'], metrics: { wrongRate: 0.0054, wrongRateHigh: 0.0101, confirmedWorse: 1, scored: 1684 } }),
     suite('s650', 'S650 (written per card)', 'gate', 1409, 0.0043, 0.0093),
-    suite('blind', 'Blind (written without seeing cards)', 'track', 275, 0.0109, 0.0316, { passed: false }),
+    suite('blind', 'Blind (written without seeing cards)', 'track', 275, 0.0109, 0.0316),
     suite('followup', 'Follow-ups (parent card on screen)', 'track', 12, 0, 0.2425),
     suite('changed', 'Questions on changed cards', 'track', 41, 0.0244, 0.1259),
     suite('language:en-GB', 'Language en-GB', 'gate', 530, 0.0038, 0.0137),
