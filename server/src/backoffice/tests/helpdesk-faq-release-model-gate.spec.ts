@@ -186,11 +186,18 @@ describe('the live-pipeline sample: which questions', () => {
       's1',
     ]);
     const late = cases.find((c) => c.id === 'a2') as ModelEvalCase;
-    expect(late).toMatchObject({ locale: 'en-GB', faqId: id(2) });
-    expect(late.allowed.sort()).toEqual([id(1), id(2)].sort());
-    expect(
-      (cases.find((c) => c.id === 'a3') as ModelEvalCase).allowed.sort(),
-    ).toEqual([id(1), id(3)].sort());
+    // the follow-up's entry card is right too, counted on its own (viaEntry)
+    expect(late).toMatchObject({
+      locale: 'en-GB',
+      faqId: id(2),
+      acceptable: [],
+      entryIds: [id(1)],
+    });
+    expect(cases.find((c) => c.id === 'a3') as ModelEvalCase).toMatchObject({
+      faqId: id(3),
+      acceptable: [id(1)],
+      entryIds: [],
+    });
     // zh-TW and mixed are asked the way Portal sends them (zh-CN)
     expect(cases.find((c) => c.id === 'a3')?.locale).toBe('zh-CN');
     const twice = selectModelEvalCases({
@@ -276,7 +283,7 @@ describe('the live-pipeline sample: blind share', () => {
 });
 
 describe('the live-pipeline sample: scoring', () => {
-  const [refund, , , nomatch, small] = selectModelEvalCases({
+  const [refund, late, , nomatch, small] = selectModelEvalCases({
     items,
     snapshot,
     changed: new Set(),
@@ -302,15 +309,33 @@ describe('the live-pipeline sample: scoring', () => {
       wrongCard: false,
     });
   });
+  it('the entry card that leads to the labelled follow-up is right, counted on its own', () => {
+    expect(late.id).toBe('a2');
+    expect(scoreModelAnswer(late, answer('answer', id(1)))).toMatchObject({
+      right: true,
+      viaEntry: true,
+      wrongCard: false,
+    });
+    expect(scoreModelAnswer(late, answer('answer', id(2)))).toMatchObject({
+      right: true,
+      viaEntry: false,
+    });
+  });
   it('any card on a no-match question is wrong; a card on small talk is only an extra card (R3)', () => {
     expect(nomatch.id).toBe('n1');
     expect(scoreModelAnswer(nomatch, answer('answer', id(1)))).toMatchObject({
       wrongCard: true,
     });
-    expect(scoreModelAnswer(nomatch, answer('clarify', id(1)))).toMatchObject({
-      right: true,
-      wrongCard: false,
-    });
+    // a follow-up question that says the answer does not cover it is right; one that claims it does is not
+    expect(
+      scoreModelAnswer(nomatch, {
+        ...answer('clarify', id(1)),
+        covered: false,
+      }),
+    ).toMatchObject({ right: true, wrongCard: false });
+    expect(
+      scoreModelAnswer(nomatch, { ...answer('clarify', id(1)), covered: true }),
+    ).toMatchObject({ right: false, wrongCard: false });
     expect(small.id).toBe('s1');
     expect(scoreModelAnswer(small, answer('answer', id(1)))).toMatchObject({
       wrongCard: false,

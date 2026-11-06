@@ -88,7 +88,13 @@ describe('release answerer (live pipeline on a candidate release)', () => {
       message: 'forgot my password',
       locale: 'en-GB',
     });
-    expect(got).toMatchObject({ kind: 'answer', nodeId: RESET.id });
+    // intent and covered go to the shared scoring (contracts/helpdesk-eval-scoring.ts)
+    expect(got).toMatchObject({
+      kind: 'answer',
+      nodeId: RESET.id,
+      intent: 'question',
+      covered: null,
+    });
     expect(run).toHaveBeenCalled();
     // every question is its own user: the per-user hourly limit never cuts a sample short
     for (let i = 0; i < 35; i += 1)
@@ -115,7 +121,7 @@ describe('release answerer (live pipeline on a candidate release)', () => {
       await failing.answerer
         .forRelease({ version: 7, snapshot: {} })
         .ask({ message: 'forgot my password', locale: 'en-GB' }),
-    ).toMatchObject({ kind: 'error', nodeId: null });
+    ).toMatchObject({ kind: 'error', nodeId: null, failure: 'error' });
   });
 
   it('is not available without an API key, and then answers nothing', async () => {
@@ -127,7 +133,7 @@ describe('release answerer (live pipeline on a candidate release)', () => {
       await answerer
         .forRelease({ version: 7, snapshot: {} })
         .ask({ message: 'forgot my password', locale: 'en-GB' }),
-    ).toMatchObject({ kind: 'error' });
+    ).toMatchObject({ kind: 'error', failure: 'no_key' });
     expect(run).not.toHaveBeenCalled();
   });
 });

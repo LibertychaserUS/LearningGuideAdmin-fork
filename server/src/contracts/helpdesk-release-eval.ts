@@ -6,6 +6,8 @@
  *
  * 测试集的问题是生成的（不含用户数据）；回归用例是员工接受过的、脱敏过的用户原话。
  */
+import type { SuggestIntent } from './helpdesk-qa';
+
 export const HELPDESK_RELEASE_ANSWERER = Symbol('HELPDESK_RELEASE_ANSWERER');
 
 export type ReleaseEvalLocale = 'en-GB' | 'zh-CN';
@@ -16,6 +18,15 @@ export type ReleaseEvalAnswer = {
   kind: 'answer' | 'clarify' | 'smalltalk' | 'no_match' | 'error';
   /** answer：出的卡；clarify：追问的那张卡；其余 null。 */
   nodeId: string | null;
+  /** 模型给的 intent（判分看寒暄是哪一种）；没调模型、或答题器不报 = null / 不写。 */
+  intent?: SuggestIntent | null;
+  /** clarify：答案里有没有写到（判分要它）；其余 null / 不写。 */
+  covered?: boolean | null;
+  /**
+   * error 的原因（turn/end：timeout、rate_limited、error、aborted、no_key；没有回复 = no_reply）。
+   * 超时也是学员没拿到答案：报告里照实算「没答上」，不当作「没跑」。
+   */
+  failure?: string;
   /** 这个问题花的钱（美元，来自模型回复的计价；没有计价 = 0）。 */
   costUsd: number;
   /** 发出了却没有带价格回复的请求数。 */

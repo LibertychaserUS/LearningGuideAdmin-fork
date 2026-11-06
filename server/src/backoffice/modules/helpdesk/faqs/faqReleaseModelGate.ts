@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import {
+  scoreTurn,
+  type TurnExpectation,
+} from '../../../../contracts/helpdesk-eval-scoring';
 import type {
   ReleaseAnswerer,
   ReleaseEvalAnswer,
@@ -31,9 +35,10 @@ import type {
  * 2. 这一版改了的卡：和上线版本比，新增或改过的卡在开发集里的全部问题（至多 changedMax 条）；
  * 3. 回归用例：员工从数据飞轮接受过的、脱敏过的用户原话（标着选定的卡，至多 regressionMax 条）。
  *
- * 判分（和评测脚本 conversations.ts 的 score 同一规则）：
- * - 期望出卡：出了标注的卡、也算对的卡（acceptable），或通向它的入口卡 → 对；出了别的卡 → 错卡；没出卡 → 没答上（不算错卡）；
- * - 期望不出卡（no_match）：出了任何卡 → 错卡；
+ * 判分（和评测脚本 conversations.ts 同一份规则：contracts/helpdesk-eval-scoring.ts）：
+ * - 期望出卡：出了标注的卡、也算对的卡（acceptable），或通向它的入口卡 → 对（入口卡单独数 viaEntry）；
+ *   出了别的卡 → 错卡；没出卡 → 没答上（不算错卡）；
+ * - 期望不出卡（no_match）：没卡、或追问时说明没覆盖 → 对；出了任何卡 → 错卡；
  * - 期望寒暄：出了卡只记「多给卡片」，不算错卡（R3）；
  * - 没得到回答（没有 key、超时、出错）→ 单独数（error），不算错卡也不算对。
  *
@@ -81,8 +86,10 @@ export type ModelEvalCase = {
   expect: 'answer' | 'no_match' | 'smalltalk';
   /** 期望出卡：标注的卡（节点 id）。 */
   faqId: string | null;
-  /** 也算对的卡：acceptable 与入口卡（节点 id）。 */
-  allowed: string[];
+  /** 也算对的卡（acceptable，节点 id）。 */
+  acceptable: string[];
+  /** 通向标注卡的入口卡（节点 id）：出它也算对，报告里单独数（viaEntry）。 */
+  entryIds: string[];
 };
 
 export type ModelEvalMiss = {
@@ -169,9 +176,10 @@ export function selectModelEvalCases(input: {
   const idOfKey = new Map(input.snapshot.nodes.map((n) => [n.key, n.id]));
   const nodeIds = new Set(input.snapshot.nodes.map((n) => n.id));
   const ancestors = entryAncestors(input.snapshot);
-  const allowedFor = (ids: string[]) => [
-    ...new Set([...ids, ...ids.flatMap((id) => ancestors.get(id) ?? [])]),
-  ];
+  const entriesFor = (ids: string[]) =>
+    [...new Set(ids.flatMap((id) => ancestors.get(id) ?? []))].filter(
+      (id) => !ids.includes(id),
+    );
   let skipped = 0;
   const usable: (ReleaseEvalItem & { gold: string[] })[] = [];
   for (const item of input.items) {
@@ -199,7 +207,8 @@ export function selectModelEvalCases(input: {
     message: item.message,
     expect: item.expect,
     faqId: item.gold[0] ?? null,
-    allowed: allowedFor(item.gold),
+    acceptable: item.gold.slice(1),
+    entryIds: entriesFor(item.gold),
   });
   const seen = new Set<string>();
   const cases: ModelEvalCase[] = [];
@@ -243,7 +252,8 @@ export function selectModelEvalCases(input: {
         message: one.text,
         expect: 'answer',
         faqId: one.faqId,
-        allowed: allowedFor([one.faqId]),
+        acceptable: [],
+        entryIds: entriesFor([one.faqId]),
       }),
     );
   return { cases, skipped };
@@ -252,42 +262,55 @@ export function selectModelEvalCases(input: {
 export type ModelEvalScore = {
   right: boolean;
   wrongCard: boolean;
+  /** 出的是通向标注卡的入口卡（算对，单独数）。 */
+  viaEntry: boolean;
   extraCard: boolean;
   error: boolean;
 };
 
-/** 一个问题的判分（规则见文件头）。 */
+/** 开发集的一条 → 评测脚本的期望（判分规则只有一份：contracts/helpdesk-eval-scoring.ts）。 */
+export function caseExpectation(one: ModelEvalCase): TurnExpectation {
+  switch (one.expect) {
+    case 'answer':
+      return {
+        kind: 'answer',
+        faqId: one.faqId ?? '',
+        acceptableFaqIds: one.acceptable,
+        entryIds: one.entryIds,
+      };
+    case 'no_match':
+      return { kind: 'no_match' };
+    case 'smalltalk':
+      return { kind: 'smalltalk' };
+  }
+}
+
+/** 一个问题的判分（规则见文件头）；没得到回答单独数（error），不算错卡也不算对。 */
 export function scoreModelAnswer(
   one: ModelEvalCase,
   got: ReleaseEvalAnswer,
 ): ModelEvalScore {
   if (got.kind === 'error')
-    return { right: false, wrongCard: false, extraCard: false, error: true };
-  const shown = got.kind === 'answer' ? got.nodeId : null;
-  switch (one.expect) {
-    case 'answer':
-      return {
-        right: shown !== null && one.allowed.includes(shown),
-        wrongCard: shown !== null && !one.allowed.includes(shown),
-        extraCard: false,
-        error: false,
-      };
-    case 'no_match':
-      return {
-        // 没卡、或先追问（不给卡）都算对；评测脚本还要求追问时 covered = false，这里不细分
-        right: shown === null,
-        wrongCard: shown !== null,
-        extraCard: false,
-        error: false,
-      };
-    case 'smalltalk':
-      return {
-        right: got.kind === 'smalltalk',
-        wrongCard: false,
-        extraCard: shown !== null,
-        error: false,
-      };
-  }
+    return {
+      right: false,
+      wrongCard: false,
+      viaEntry: false,
+      extraCard: false,
+      error: true,
+    };
+  const scored = scoreTurn(caseExpectation(one), {
+    kind: got.kind,
+    intent: got.intent ?? null,
+    nodeId: got.nodeId,
+    covered: got.covered ?? null,
+  });
+  return {
+    right: scored.right,
+    wrongCard: scored.wrongFaq,
+    viaEntry: scored.viaEntry === true,
+    extraCard: scored.extraCard === true,
+    error: false,
+  };
 }
 
 const previousModelWrongRate = (report: unknown): number | null => {
@@ -452,6 +475,7 @@ export function createModelReleaseGate(
             : 0
           ).toFixed(4),
         ),
+        viaEntry: count((s) => s.viaEntry),
         extraCards: count((s) => s.extraCard),
         errors,
         costUsd: Number(spent.toFixed(4)),

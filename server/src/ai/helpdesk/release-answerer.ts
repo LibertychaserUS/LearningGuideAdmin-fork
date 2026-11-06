@@ -1,5 +1,8 @@
 import { uuidv7 } from '../../common/uuidv7';
-import type { HelpdeskQaSource } from '../../contracts/helpdesk-qa';
+import type {
+  HelpdeskQaSource,
+  SuggestIntent,
+} from '../../contracts/helpdesk-qa';
 import type {
   ReleaseAnswerer,
   ReleaseEvalAnswer,
@@ -41,6 +44,8 @@ type Reply = {
   suggestion: { faqId: string } | null;
   kind?: string;
   nodeId?: string | null;
+  intent?: SuggestIntent | null;
+  covered?: boolean | null;
 };
 
 const KINDS = ['answer', 'clarify', 'smalltalk', 'no_match'] as const;
@@ -112,7 +117,13 @@ export function createReleaseAnswerer(
             reply === null ||
             (typeof reason === 'string' && FAILED_REASONS.includes(reason));
           if (failed && !reply?.suggestion)
-            return { kind: 'error', nodeId: null, costUsd, unpricedCalls };
+            return {
+              kind: 'error',
+              nodeId: null,
+              costUsd,
+              unpricedCalls,
+              failure: typeof reason === 'string' ? reason : 'no_reply',
+            };
           const raw =
             reply?.kind ?? (reply?.suggestion ? 'answer' : 'no_match');
           const kind = (KINDS as readonly string[]).includes(raw)
@@ -122,7 +133,14 @@ export function createReleaseAnswerer(
             kind === 'answer' || kind === 'clarify'
               ? (reply?.nodeId ?? reply?.suggestion?.faqId ?? null)
               : null;
-          return { kind, nodeId, costUsd, unpricedCalls };
+          return {
+            kind,
+            nodeId,
+            intent: reply?.intent ?? null,
+            covered: kind === 'clarify' ? (reply?.covered ?? null) : null,
+            costUsd,
+            unpricedCalls,
+          };
         },
       };
     },
