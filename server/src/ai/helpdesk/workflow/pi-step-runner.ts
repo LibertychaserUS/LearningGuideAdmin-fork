@@ -71,6 +71,7 @@ export type StreamSource = {
 export type ModelSource = (
   pi: PiModules,
   target: ModelTarget,
+  routing?: AgentStepSpec['routing'],
 ) => {
   models: StreamSource;
   model: Model<Api>;
@@ -90,6 +91,30 @@ export const OPENROUTER_ROUTING = {
   sort: 'price',
   require_parameters: true,
 } as const;
+
+/**
+ * spec.routing 'fastest'（只有拆问用，owner 2026-11-06）：按首字延迟排，单价不超过模型的目录价
+ * （OpenRouter max_price，美元 / 百万 token；不高于目录价，costUsd 仍是上限）。2026-11-06 同一批句子经本代码
+ * 各 200 次拆问实测：中位 2.3 → 1.3 秒，九成 5.9 → 3.0 秒，超过 2.5 秒拆问时限的 45% → 14%；直连另测 360 次
+ * 费用约 +6%。价目外的模型没有目录价、设不了上限：照旧最便宜。
+ */
+export const FASTEST_ROUTING = {
+  sort: 'latency',
+  require_parameters: true,
+} as const;
+
+export function openRouterRouting(
+  routing: AgentStepSpec['routing'],
+  known: Model<Api> | undefined,
+) {
+  const cost = known?.cost;
+  return routing === 'fastest' && cost && cost.input > 0 && cost.output > 0
+    ? {
+        ...FASTEST_ROUTING,
+        max_price: { prompt: cost.input, completion: cost.output },
+      }
+    : { ...OPENROUTER_ROUTING };
+}
 let openRouterModels: ReturnType<PiModules['ai']['createModels']> | undefined;
 
 /**
@@ -97,7 +122,7 @@ let openRouterModels: ReturnType<PiModules['ai']['createModels']> | undefined;
  * （openai-completions 接口），没有就按 OpenRouter 的 chat completions 现造；base URL 每次现读。
  * 给了 target.thinking 就把模型标成能思考，价目外的模型 pi 才会发 reasoning（档位即 Agent 的 thinkingLevel）。
  */
-export const openRouterSource: ModelSource = (pi, target) => {
+export const openRouterSource: ModelSource = (pi, target, step) => {
   if (!openRouterModels) {
     openRouterModels = pi.ai.createModels();
     openRouterModels.setProvider(pi.openrouter.openrouterProvider());
@@ -108,7 +133,7 @@ export const openRouterSource: ModelSource = (pi, target) => {
   const thinks =
     target.thinking !== undefined &&
     !(target.thinking === 'off' && known !== undefined && !known.reasoning);
-  const routing = { openRouterRouting: { ...OPENROUTER_ROUTING } };
+  const routing = { openRouterRouting: openRouterRouting(step, known) };
   const model: Model<Api> =
     known?.api === 'openai-completions'
       ? {
@@ -216,7 +241,11 @@ export class PiStepRunner implements AgentStepRunner {
     const pi = await this.load();
     const { signal, trace, step } = context;
     if (signal.aborted) return { kind: 'aborted' };
-    const { models, model, priced = true } = this.source(pi, context.model);
+    const {
+      models,
+      model,
+      priced = true,
+    } = this.source(pi, context.model, spec.routing);
     const allowed = [spec.tool.name];
     const toolName = (name: string) =>
       IDENTIFIER.test(name) ? name : 'invalid_name';

@@ -52,6 +52,11 @@ export type AgentStepSpec = {
     flagArgs?: Record<string, string>;
   };
   maxTokens: number;
+  /**
+   * 这一步走哪家 provider。缺省 = 只选最便宜（owner 2026-10-31）。'fastest' = 首字最快、且单价不超过
+   * 模型目录价的 provider：只有拆问（split_asks）用，owner 2026-11-06 选「拆问走最快的，设价格上限」。
+   */
+  routing?: 'fastest';
 };
 
 /** 工具调用里枚举以外的参数（v5）；没有这类参数的步骤为 undefined。 */

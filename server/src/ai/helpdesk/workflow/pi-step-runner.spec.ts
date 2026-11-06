@@ -7,7 +7,9 @@ import { RunTrace } from '../trace/run-trace';
 import type { AgentStepContext, AgentStepSpec, ModelTarget } from './engine';
 import {
   loadPi,
+  FASTEST_ROUTING,
   OPENROUTER_ROUTING,
+  openRouterRouting,
   openRouterSource,
   PiStepRunner,
   THINKING_TOKENS,
@@ -535,7 +537,11 @@ describe('PiStepRunner through the pi OpenRouter provider (fake fetch)', () => {
     ...extra,
   });
 
-  async function call(respond: () => Response, model: ModelTarget = TARGET) {
+  async function call(
+    respond: () => Response,
+    model: ModelTarget = TARGET,
+    spec: AgentStepSpec = SPEC,
+  ) {
     const fetch = jest.fn((url: string | URL | Request, init?: RequestInit) => {
       void url;
       void init;
@@ -545,7 +551,7 @@ describe('PiStepRunner through the pi OpenRouter provider (fake fetch)', () => {
     const trace = new RunTrace(RUN, log);
     const outcome = await new PiStepRunner({
       fetch: fetch as unknown as typeof globalThis.fetch,
-    }).run(SPEC, {
+    }).run(spec, {
       trace,
       step: 2,
       name: 'pick_faq',
@@ -659,6 +665,40 @@ describe('PiStepRunner through the pi OpenRouter provider (fake fetch)', () => {
         require_parameters: true,
       });
     }
+  });
+
+  it("for a step that asks for the fastest provider (only split_asks), sorts by latency under the model's catalog price; a model missing from the catalog stays on the cheapest", async () => {
+    // owner 2026-11-06：拆问走最快的，设价格上限；其他步骤照旧只选最便宜
+    const pi = await loadPi();
+    const catalog = openRouterSource(pi, TARGET).model.cost;
+    const fastest: AgentStepSpec = { ...SPEC, routing: 'fastest' };
+    const sent = async (model: string, spec: AgentStepSpec) => {
+      const { fetch } = await call(picked, { ...TARGET, model }, spec);
+      return (
+        JSON.parse(
+          (fetch.mock.calls[0] as [unknown, RequestInit])[1].body as string,
+        ) as { provider?: unknown }
+      ).provider;
+    };
+    expect(await sent(TARGET.model, fastest)).toEqual({
+      sort: 'latency',
+      require_parameters: true,
+      max_price: { prompt: catalog.input, completion: catalog.output },
+    });
+    expect(FASTEST_ROUTING).toEqual({
+      sort: 'latency',
+      require_parameters: true,
+    });
+    expect(await sent('acme/brand-new-model', fastest)).toEqual(
+      OPENROUTER_ROUTING,
+    );
+    expect(await sent(TARGET.model, SPEC)).toEqual(OPENROUTER_ROUTING);
+    // 目录价是 0（免费模型）也设不了上限：照旧最便宜
+    const free = {
+      ...openRouterSource(pi, TARGET).model,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+    expect(openRouterRouting('fastest', free)).toEqual(OPENROUTER_ROUTING);
   });
 
   it('without a thinking setting turns thinking off for a catalog model and sends nothing for any other', async () => {

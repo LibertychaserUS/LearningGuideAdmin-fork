@@ -99,6 +99,8 @@ export function splitAsksSpec(message: string): AgentStepSpec {
       },
     },
     maxTokens: 200,
+    // 只有拆问走最快的 provider（不超过目录价）：单问题要等它才出卡，慢的一头直接加在用户的等待上
+    routing: 'fastest',
   };
 }
 

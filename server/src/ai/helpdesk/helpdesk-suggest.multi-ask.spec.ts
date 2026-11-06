@@ -253,6 +253,10 @@ describe('multi-ask on: several asks, one card each, in the order asked', () => 
     expect(JSON.parse(splitSpec.prompt)).toEqual({ message: MESSAGE });
     const pickSpec = specOf('pick_asks') as AgentStepSpec;
     expect(pickSpec.system).toBe(PICK_ASKS_SYSTEM);
+    // 只有拆问走最快的 provider（owner 2026-11-06）；挑卡照旧只选最便宜
+    expect(splitSpec.routing).toBe('fastest');
+    expect(pickSpec.routing).toBeUndefined();
+    expect((specOf('pick_faq') as AgentStepSpec).routing).toBeUndefined();
     // 几件事共用一个候选池：各件事的候选与整句的答案卡按名次轮流取（choice 卡片不进来）
     const poolIds = [RESET.id, FAILED.id, EMAIL.id, 'none'];
     expect(pickSpec.tool.enumArgs).toMatchObject({
