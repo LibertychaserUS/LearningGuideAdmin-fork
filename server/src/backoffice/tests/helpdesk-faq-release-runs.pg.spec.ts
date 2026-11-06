@@ -131,7 +131,8 @@ describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
       parseFaqLibrary(JSON.parse(readFileSync(LIBRARY, 'utf8'))),
       { actor, release: false },
     );
-  });
+    // 跑全部 helpdesk 迁移再导入整个 FAQ 库：CI 上偶尔超过缺省的 5 秒（2026-11-06 一次）
+  }, 30_000);
 
   afterAll(async () => {
     await pool?.end();
