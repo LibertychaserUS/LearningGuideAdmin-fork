@@ -45,6 +45,8 @@ export type ScoredTurn = {
   intent: SuggestIntent | null;
   nodeId: string | null;
   covered: boolean | null;
+  /** 一句多问时第一张以外的卡（按出现顺序）：任何一张是标的卡就算对。 */
+  more?: string[];
 };
 
 export type TurnScore = {
@@ -82,19 +84,17 @@ export function scoreTurn(
   streak = 0,
 ): TurnScore {
   const shownCard = got.kind === 'answer' ? got.nodeId : null;
-  const wrong = (allowed: string[]) =>
-    shownCard !== null && !allowed.includes(shownCard);
+  // 一句多问：同一条回复里的几张卡（第一张在前）
+  const shown = shownCard === null ? [] : [shownCard, ...(got.more ?? [])];
   switch (expect.kind) {
     case 'answer': {
       const exact = [expect.faqId, ...(expect.acceptableFaqIds ?? [])];
       const allowed = [...exact, ...(expect.entryIds ?? [])];
+      const right = shown.some((c) => allowed.includes(c));
       return {
-        right: shownCard !== null && allowed.includes(shownCard),
-        wrongFaq: wrong(allowed),
-        viaEntry:
-          shownCard !== null &&
-          !exact.includes(shownCard) &&
-          allowed.includes(shownCard),
+        right,
+        wrongFaq: shown.length > 0 && !right,
+        viaEntry: right && !shown.some((c) => exact.includes(c)),
       };
     }
     case 'clarify':

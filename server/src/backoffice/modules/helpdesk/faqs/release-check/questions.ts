@@ -392,6 +392,7 @@ export function scoreModelAnswer(
     intent: got.intent ?? null,
     nodeId: got.nodeId,
     covered: got.covered ?? null,
+    ...(got.more ? { more: got.more } : {}),
   });
   return {
     right: scored.right,

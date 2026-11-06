@@ -355,6 +355,18 @@ describe('the live-pipeline check: scoring', () => {
     });
   });
 
+  it('one message, several asks: right when any card of the reply is the labelled one, wrong when none is', () => {
+    expect(
+      scoreModelAnswer(q('a1'), { ...answer('answer', id(3)), more: [id(1)] }),
+    ).toMatchObject({ right: true, wrongCard: false, viaEntry: false });
+    expect(
+      scoreModelAnswer(q('a1'), { ...answer('answer', id(3)), more: [id(4)] }),
+    ).toMatchObject({ right: false, wrongCard: true });
+    expect(
+      scoreModelAnswer(q('n1'), { ...answer('answer', id(3)), more: [id(1)] }),
+    ).toMatchObject({ wrongCard: true, cardWhenNone: true });
+  });
+
   it('judges a rate on its 95% Wilson upper bound', () => {
     expect(wilson(0, 1684).high).toBeCloseTo(0.00228, 5);
     expect(wilson(1, 400).high).toBeCloseTo(0.01402, 5);

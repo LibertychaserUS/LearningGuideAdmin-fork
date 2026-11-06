@@ -268,6 +268,8 @@ export type GotTurn = {
   handover?: boolean;
   intent: SuggestIntent | null;
   nodeId: string | null;
+  /** 一句多问时第一张以外的卡（HELPDESK_MULTI_ASK）。 */
+  more?: string[];
   covered: boolean | null;
   guard: SuggestGuard | null;
   blocks: string[];
@@ -351,6 +353,7 @@ type V5Reply = {
   kind?: SuggestKind;
   intent?: SuggestIntent | null;
   nodeId?: string | null;
+  more?: { faqId: string }[];
   covered?: boolean | null;
   guard?: SuggestGuard | null;
   blocks?: string[];
@@ -532,6 +535,9 @@ export async function runConversations(
         kind: reply.kind ?? (reply.suggestion ? 'answer' : 'no_match'),
         intent: reply.intent ?? null,
         nodeId: reply.nodeId ?? reply.suggestion?.faqId ?? null,
+        ...(reply.more?.length
+          ? { more: reply.more.map((card) => card.faqId) }
+          : {}),
         covered: reply.covered ?? null,
         guard: reply.guard ?? null,
         blocks: reply.blocks ?? [],

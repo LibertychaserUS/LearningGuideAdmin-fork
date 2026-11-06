@@ -9,6 +9,7 @@ import {
   type SuggestGuard,
   type SuggestIntent,
   type SuggestKind,
+  type SuggestMoreCard,
   type SuggestRequestContext,
 } from '../../../contracts/helpdesk-qa';
 import type { JsonObject } from '../../../contracts/helpdesk-trace';
@@ -16,6 +17,20 @@ import type { AgentCallExtras, WorkflowTemplate } from './engine';
 import { NONE } from './faq-workflow';
 import { directPick, type RerankConfig } from '../rerank';
 import { LEARNER_STATE_RULE, learnerFacts } from './learner-facts';
+import {
+  askPool as pool,
+  asksOf,
+  asksPicked,
+  composeAsks,
+  SEVERAL_OPENING,
+  mayHaveSeveralAsks,
+  MULTI_ASK,
+  offersBlocks,
+  pickAsksSpec,
+  splitAsksSpec,
+  type AskInput,
+  type AskPick,
+} from './multi-ask';
 import {
   ANSWER_LINES,
   answerToneOf,
@@ -27,7 +42,6 @@ import {
   quotedPart,
   replyTemplate,
   TEMPLATES,
-  textLength,
   type Learner,
   type ReplyIntent,
 } from './guard';
@@ -132,6 +146,9 @@ export type AssistTurn = {
   explanation: string | null;
   covered: boolean | null;
   guard: SuggestGuard | null;
+  /** 一句多问（multi-ask.ts）：其余的卡与没找到卡的事数；只有一件事时不写。 */
+  more?: SuggestMoreCard[];
+  missed?: number;
 };
 
 export type AssistState = {
@@ -153,6 +170,19 @@ export type AssistState = {
   /** 回包的 suggestion（answer 或 choice 节点）。 */
   chosen: HelpdeskQaCandidate | null;
   turn: AssistTurn | null;
+  /**
+   * 一句多问：和检索同时发出的拆问（multi-ask.ts），不挡单问题的路——到 route 要出卡时才等它；
+   * 没发（开关关着、屏幕上有卡片、预筛没过）为 null。
+   */
+  split: Promise<string[]> | null;
+  /** 拆出来的几件事（[] = 一件事，照旧走 pick_faq / route）。 */
+  asks: string[];
+  /** 几件事共用的候选池（askPool：各件事自己的候选与整句的候选轮流取）。 */
+  askPool: HelpdeskQaCandidate[];
+  /** 每件事自己检索到的卡（与 asks 同序；记进日志，发布检查按它估计影响面）。 */
+  askCandidates: HelpdeskQaCandidate[][];
+  /** 每件事的结果（与 asks 同序；undefined = 还要问模型）。 */
+  askPicks: (AskPick | undefined)[];
 };
 
 export function initialAssistState(input: {
@@ -181,6 +211,11 @@ export function initialAssistState(input: {
     explained: null,
     chosen: null,
     turn: null,
+    split: null,
+    asks: [],
+    askPool: [],
+    askCandidates: [],
+    askPicks: [],
   };
 }
 
@@ -267,15 +302,6 @@ export function uncoveredTurn(
   };
 }
 
-/** 摘录可选时才给模型看块（答案 > 3 块且 > 200 字），否则只给答案开头。 */
-function offersBlocks(c: HelpdeskQaCandidate): boolean {
-  return (
-    c.type !== 'choice' &&
-    (c.blocks?.length ?? 0) > 3 &&
-    textLength(c.answer) > 200
-  );
-}
-
 /**
  * 「几个候选都是同一个 choice 卡片的选项」：给了 picked → 只看它的父 choice（优先和别的前排候选共用的那个），
  * 它不是任何 choice 的选项就没有；没给 → 前 3 个 answer 候选里至少 2 个同属的那个 choice。
@@ -315,6 +341,13 @@ export const ASSIST_SEARCH: Required<
   Pick<HelpdeskQaSearch, 'entryOnly' | 'types' | 'deepReserved'>
 > = { entryOnly: true, types: ['answer', 'choice'], deepReserved: 2 };
 
+/** 还要问模型的那几件事（编号从 1 起，按用户问的顺序）。 */
+function openAsks(state: AssistState): AskInput[] {
+  return state.asks
+    .map((text, index) => ({ n: index + 1, text }))
+    .filter((_, index) => state.askPicks[index] === undefined);
+}
+
 export function assistWorkflow(deps: {
   qa: HelpdeskQaSource;
   limit: number;
@@ -325,6 +358,10 @@ export function assistWorkflow(deps: {
   cardContext?: boolean;
   /** 检索带上学员的上一条原文（HelpdeskQaSearch.context，HELPDESK_QUERY_CONTEXT）。 */
   queryContext?: boolean;
+  /** 一句话问了几件事时拆开、各给一张卡（multi-ask.ts，HELPDESK_MULTI_ASK）。 */
+  multiAsk?: boolean;
+  /** 真拆出了几件事时，这一轮的总期限多给 MULTI_ASK.extraMs（服务的 left 跟着变）。 */
+  extendDeadline?: (ms: number) => void;
 }): WorkflowTemplate<AssistState> {
   const findNode = async (state: AssistState, id: string) =>
     state.candidates.find((c) => c.id === id) ??
@@ -337,11 +374,23 @@ export function assistWorkflow(deps: {
     steps: {
       retrieve: {
         kind: 'code',
-        async run(state) {
+        async run(state, context) {
           const nodeId = state.context.nodeId;
           const previous = deps.queryContext
             ? state.context.recentTurns?.at(-1)?.trim()
             : undefined;
+          // 一句多问：屏幕上没有卡片、预筛像是问了不止一件事 → 和检索同时问小模型拆开（multi-ask.ts）；
+          // 这里不等它，route 要出卡时才等（单问题照旧挑卡，不多等拆问）
+          const split =
+            deps.multiAsk &&
+            !nodeId &&
+            mayHaveSeveralAsks(state.enquiry.message)
+              ? context
+                  .agent('split_asks', splitAsksSpec(state.enquiry.message), {
+                    timeoutMs: MULTI_ASK.splitTimeoutMs,
+                  })
+                  .then(asksOf)
+              : null;
           const [found, shown] = await Promise.all([
             deps.qa.findCandidates({
               locale: state.enquiry.locale,
@@ -358,6 +407,7 @@ export function assistWorkflow(deps: {
           ]);
           // 条数由来源定：缺省至多 limit；HELPDESK_LOCATOR=hybrid 时结构排序的前 3 张另加在最前面
           const candidates = found.filter((c) => c.id !== shown?.id);
+          state = { ...state, split };
           // 分级 L2：第一句（屏幕上没有卡片）且精排有把握 → 直接给第一名，不问模型（固定开头结尾照旧）
           const direct = nodeId
             ? null
@@ -522,6 +572,153 @@ export function assistWorkflow(deps: {
           return { state: next, then: { end: 'no_match' } };
         },
       },
+      retrieve_asks: {
+        kind: 'code',
+        async run(state) {
+          const previous = deps.queryContext
+            ? state.context.recentTurns?.at(-1)?.trim()
+            : undefined;
+          // 每件事各自检索、精排（只要答案卡：choice 卡片要用户自己选，放不进一条多卡回复）
+          const askCandidates = await Promise.all(
+            state.asks.map((text) =>
+              deps.qa
+                .findCandidates({
+                  locale: state.enquiry.locale,
+                  category: state.enquiry.category,
+                  text,
+                  limit: deps.limit,
+                  ...(previous ? { context: previous } : {}),
+                  ...ASSIST_SEARCH,
+                  types: ['answer'],
+                })
+                .then((found) => found.slice(0, MULTI_ASK.askCandidates)),
+            ),
+          );
+          // 精排有把握的那件事直接定（与第一句的 directPick 同一条线），其余问模型
+          const askPicks: (AskPick | undefined)[] = askCandidates.map(
+            (found) => {
+              const direct = directPick(found, deps.direct ?? null);
+              return direct ? { nodeId: direct.id, blocks: [] } : undefined;
+            },
+          );
+          const open = askPicks.some((pick) => pick === undefined);
+          // 整句的候选里只取答案卡（choice 卡片要用户自己选，放不进一条多卡回复）
+          const askPool = pool([
+            ...askCandidates,
+            state.candidates.filter((c) => (c.type ?? 'answer') === 'answer'),
+          ]);
+          return {
+            state: { ...state, askCandidates, askPool, askPicks },
+            then: !open
+              ? { next: 'compose' }
+              : deps.left() <= 0
+                ? { end: 'timeout' }
+                : { next: 'pick_asks' },
+            output: {
+              asks: askCandidates.map((found, index) => ({
+                candidates: found.map((c) => ({
+                  id: c.id,
+                  score: c.score,
+                  ...(c.rerankScore !== undefined
+                    ? { rerankScore: c.rerankScore }
+                    : {}),
+                })),
+                direct: askPicks[index]?.nodeId ?? null,
+              })),
+              pool: askPool.map((c) => c.id),
+            },
+          };
+        },
+      },
+      pick_asks: {
+        kind: 'agent',
+        prepare: (state) =>
+          pickAsksSpec({
+            message: state.enquiry.message,
+            asks: openAsks(state),
+            candidates: state.askPool,
+            ...(state.context.learnerState
+              ? { learnerState: state.context.learnerState }
+              : {}),
+            ...(deps.cardContext ? { cardContextRule: CARD_CONTEXT_RULE } : {}),
+          }),
+        decide: (state, args, extras?: AgentCallExtras) => {
+          const { intent, picks } = asksPicked(
+            openAsks(state),
+            state.askPool,
+            args,
+            extras,
+          );
+          return {
+            state: {
+              ...state,
+              intent,
+              confidence: args ? 'sure' : null,
+              askPicks: state.askPicks.map((pick, index) =>
+                pick === undefined ? (picks.get(index + 1) ?? null) : pick,
+              ),
+            },
+            then: { next: 'compose' },
+          };
+        },
+      },
+      compose: {
+        kind: 'code',
+        run(state) {
+          // 意图不是问题（替别人查、要例外、改规则、无关）：不出卡（与 pick_faq 那一路一样）
+          const answerable =
+            state.intent === null || ANSWERABLE.includes(state.intent);
+          const nodes = new Map(
+            [...state.askPool, ...state.askCandidates.flat()].map(
+              (c) => [c.id, c] as const,
+            ),
+          );
+          const { first, more, missed } = composeAsks(
+            answerable ? state.askPicks.map((pick) => pick ?? null) : [],
+            (id) => nodes.get(id),
+          );
+          if (!first)
+            return Promise.resolve({
+              state: { ...state, turn: null },
+              then: { end: 'no_match' as const },
+              output: { kind: 'no_match', asks: state.asks.length },
+            });
+          const single = answerTurn(
+            first.node,
+            state.learner,
+            state.enquiry.message,
+            first.blocks,
+          );
+          const turn: AssistTurn = {
+            ...single,
+            // 几张卡时开场白说明顺序；一张卡（几件事同一张卡）照单问
+            ...(more.length
+              ? { opening: SEVERAL_OPENING[state.learner.variant], more }
+              : {}),
+            ...(missed ? { missed } : {}),
+          };
+          return Promise.resolve({
+            state: {
+              ...state,
+              intent: state.intent ?? 'question',
+              confidence: 'sure' as const,
+              picked: first.node.id,
+              chosen: first.node,
+              turn,
+            },
+            then: { end: 'answered' as const },
+            output: {
+              kind: 'answer',
+              asks: state.asks.length,
+              nodeId: first.node.id,
+              blocks: turn.blocks,
+              more: more.map((card) => card.faqId),
+              missed,
+              guard: turn.guard,
+            },
+          });
+        },
+      },
       smalltalk: {
         kind: 'code',
         run(state) {
@@ -541,9 +738,21 @@ export function assistWorkflow(deps: {
         kind: 'code',
         async run(state): Promise<{
           state: AssistState;
-          then: { end: 'answered' | 'no_match' };
+          then: { end: 'answered' | 'no_match' } | { next: 'retrieve_asks' };
           output: JsonObject;
         }> {
+          // 一句多问：要出卡（或没找到）之前等拆问；拆出了几件事 → 每件事各自找卡（期限多给一点）
+          if (state.split && state.intent !== 'vague') {
+            const asks = await state.split;
+            if (asks.length >= 2) {
+              deps.extendDeadline?.(MULTI_ASK.extraMs);
+              return {
+                state: { ...state, asks },
+                then: { next: 'retrieve_asks' },
+                output: { asks: asks.length, faqId: state.picked },
+              };
+            }
+          }
           const shownId = state.shown?.id ?? null;
           const picked =
             state.candidates.find((c) => c.id === state.picked) ?? null;

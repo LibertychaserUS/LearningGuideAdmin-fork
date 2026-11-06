@@ -637,6 +637,18 @@ export function parseSuggestContext(
  * intent / confidence 在没有调用模型时（chip、限流、超时）为 null；releaseVersion 为 null = 还没有发布版本
  * （逐条发布模式）。
  */
+/**
+ * 一句话问了几件事（answer 才有）：第一张卡以外的卡，按用户问的顺序，最多 SUGGEST_MORE_MAX 张；
+ * blocks 与 suggestion 的 blocks 同一条规则（[] = 整条）。旧的 Portal 不认识就只显示第一张。
+ */
+export type SuggestMoreCard = {
+  faqId: string;
+  question: string;
+  answer: string;
+  blocks: string[];
+};
+export const SUGGEST_MORE_MAX = 2;
+
 export type SuggestTurnFields = {
   kind: SuggestKind;
   intent: SuggestIntent | null;
@@ -650,8 +662,13 @@ export type SuggestTurnFields = {
   covered: boolean | null;
   guard: SuggestGuard | null;
   releaseVersion: number | null;
+  /** 一句多问时其余的卡（answer 才有，有才给；没有这个键 = 只有一张）。 */
+  more?: SuggestMoreCard[];
+  /** 一句多问时有几件事没找到卡（answer 才有，> 0 才给；Portal 说明并给转人工）。 */
+  missed?: number;
 };
 
+/** 必有的键（more、missed 只在一句多问时出现，不在这里）。 */
 export const SUGGEST_TURN_FIELDS = [
   'kind',
   'intent',
@@ -801,6 +818,57 @@ export function suggestTurnProblems(raw: unknown): string[] {
   }
   if (kind === 'no_match') {
     none(['nodeId', 'reply', 'explanation', 'covered', 'guard']);
+  }
+  problems.push(...moreProblems(body, kind));
+  return problems;
+}
+
+/** 一句多问的 more / missed：只在 answer 里，有才给；卡不重复、不是第一张、摘录块合规。 */
+function moreProblems(body: Record<string, unknown>, kind: unknown): string[] {
+  const problems: string[] = [];
+  if ('more' in body) {
+    const more = body.more;
+    if (kind !== 'answer') problems.push(`${String(kind)} has no more cards`);
+    if (
+      !Array.isArray(more) ||
+      more.length === 0 ||
+      more.length > SUGGEST_MORE_MAX
+    )
+      problems.push(`more lists 1 to ${SUGGEST_MORE_MAX} cards`);
+    else {
+      const ids = new Set<unknown>([body.nodeId]);
+      for (const card of more as unknown[]) {
+        const c = (card ?? {}) as Record<string, unknown>;
+        if (typeof c.faqId !== 'string' || !UUID.test(c.faqId))
+          problems.push('more cards need a faqId');
+        else if (ids.has(c.faqId))
+          problems.push('more cards are all different');
+        ids.add(c.faqId);
+        for (const key of ['question', 'answer'] as const)
+          if (typeof c[key] !== 'string' || c[key].trim() === '')
+            problems.push(`more cards need a ${key}`);
+        const blocks = c.blocks;
+        if (
+          !Array.isArray(blocks) ||
+          !blocks.every((id) => BLOCK_ID.test(String(id))) ||
+          blocks.length > EXCERPT_RULES.maxBlocks ||
+          blocks
+            .map((id) => Number(String(id).slice(1)))
+            .some((n, i, all) => i > 0 && n !== all[i - 1] + 1)
+        )
+          problems.push('more cards need contiguous block ids');
+      }
+    }
+  }
+  if ('missed' in body) {
+    if (kind !== 'answer') problems.push(`${String(kind)} has no missed asks`);
+    const missed = body.missed;
+    if (
+      !Number.isInteger(missed) ||
+      Number(missed) < 1 ||
+      Number(missed) > SUGGEST_MORE_MAX
+    )
+      problems.push(`missed is 1 to ${SUGGEST_MORE_MAX}`);
   }
   return problems;
 }

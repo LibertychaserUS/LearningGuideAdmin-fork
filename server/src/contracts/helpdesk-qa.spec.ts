@@ -12,6 +12,7 @@ import {
   isSituationSignal,
   parseSuggestContext,
   suggestTurnProblems,
+  SUGGEST_MORE_MAX,
 } from './helpdesk-qa';
 import { INTENTS } from '../ai/helpdesk/workflow/faq-workflow';
 
@@ -212,6 +213,90 @@ describe('suggestTurnProblems', () => {
       suggestTurnProblems({ ...empty, kind: 'no_match', guard: passed }),
     ).toContain('guard must be null for no_match');
     expect(suggestTurnProblems('x')).toEqual(['not an object']);
+  });
+
+  describe('several asks in one message (more, missed)', () => {
+    const OTHER = '01a18100-0000-7000-8000-000000000002';
+    const THIRD = '01a18100-0000-7000-8000-000000000003';
+    const extra = (faqId: string, blocks: string[] = []) => ({
+      faqId,
+      question: 'q2',
+      answer: 'a2',
+      blocks,
+    });
+
+    it('accepts up to two more cards and a missed count next to an answer; both keys are optional', () => {
+      expect(
+        suggestTurnProblems({
+          ...answer,
+          more: [extra(OTHER, ['b1', 'b2']), extra(THIRD)],
+        }),
+      ).toEqual([]);
+      expect(suggestTurnProblems({ ...answer, missed: 1 })).toEqual([]);
+      expect(SUGGEST_MORE_MAX).toBe(2);
+    });
+
+    it.each([
+      ['an empty list', { more: [] }, 'more lists 1 to 2 cards'],
+      [
+        'three more cards',
+        {
+          more: [
+            extra(OTHER),
+            extra(THIRD),
+            extra('01a18100-0000-7000-8000-000000000004'),
+          ],
+        },
+        'more lists 1 to 2 cards',
+      ],
+      [
+        'the first card again',
+        { more: [extra(NODE)] },
+        'more cards are all different',
+      ],
+      [
+        'the same card twice',
+        { more: [extra(OTHER), extra(OTHER)] },
+        'more cards are all different',
+      ],
+      ['a card with no id', { more: [extra('x')] }, 'more cards need a faqId'],
+      [
+        'a card with no answer',
+        { more: [{ ...extra(OTHER), answer: ' ' }] },
+        'more cards need a answer',
+      ],
+      [
+        'gapped blocks',
+        { more: [extra(OTHER, ['b1', 'b3'])] },
+        'more cards need contiguous block ids',
+      ],
+      ['missed zero', { missed: 0 }, 'missed is 1 to 2'],
+      ['missed three', { missed: 3 }, 'missed is 1 to 2'],
+    ])('flags %s', (_name, patch, problem) => {
+      expect(suggestTurnProblems({ ...answer, ...patch })).toContain(problem);
+    });
+
+    it('only an answer carries them', () => {
+      const noMatch = {
+        ...answer,
+        suggestion: null,
+        kind: 'no_match',
+        nodeId: null,
+        blocks: [],
+        opening: null,
+        closing: null,
+        guard: null,
+        alternatives: [],
+      };
+      expect(
+        suggestTurnProblems({ ...noMatch, more: [extra(OTHER)], missed: 1 }),
+      ).toEqual(
+        expect.arrayContaining([
+          'no_match has no more cards',
+          'no_match has no missed asks',
+        ]),
+      );
+    });
   });
 });
 

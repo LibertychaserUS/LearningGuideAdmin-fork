@@ -205,6 +205,9 @@ export const STREAM_STEPS = {
   route: 'route',
   smalltalk: 'smalltalk',
   ground: 'ground',
+  // 一句多问（multi-ask.ts）：对外仍是「挑卡」「组回复」，Portal 不用认新名字
+  pick_asks: 'pick',
+  compose: 'route',
 } as const;
 export type StreamStep = (typeof STREAM_STEPS)[keyof typeof STREAM_STEPS];
 
@@ -416,6 +419,8 @@ type Assisted = {
   turn: AssistTurn;
   intent: SuggestIntent | null;
   confidence: ConfidenceLevel | null;
+  /** 一句多问时拆出了几件事（只有一件事时不写）。 */
+  asks?: number;
 };
 
 type Decided = {
@@ -571,6 +576,12 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
           covered: turn.covered,
           guard: turn.guard,
           releaseVersion: await release,
+          ...(turn.kind === 'answer' && turn.more?.length
+            ? { more: turn.more }
+            : {}),
+          ...(turn.kind === 'answer' && turn.missed
+            ? { missed: turn.missed }
+            : {}),
         }
       : null;
     run.emit('turn/end', {
@@ -591,6 +602,14 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
             covered: fields.covered,
             guard: fields.guard,
             releaseVersion: fields.releaseVersion,
+            // 一句多问：拆出几件事、其余的卡、没找到卡的事数（卡的 id 不是原文）
+            ...(decided.assisted?.asks
+              ? {
+                  asks: decided.assisted.asks,
+                  more: (fields.more ?? []).map((card) => card.faqId),
+                  missed: fields.missed ?? 0,
+                }
+              : {}),
             // 给学员看的短句（模型写的过了守卫，或模板）：按学员原文对待（LEARNER_TEXT_FIELDS）
             output: {
               opening: fields.opening,
@@ -691,10 +710,16 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
     if (apiKey === '' && input.source !== 'chip')
       return { chosen: null, reason: 'no_key', model: null };
     const limits = suggestLimits(isV5(input), env);
-    const deadline = this.now() + (this.deps.deadlineMs ?? limits.deadlineMs);
+    let deadline = this.now() + (this.deps.deadlineMs ?? limits.deadlineMs);
     const left = () => deadline - this.now();
+    // 一句多问（multi-ask.ts）：真拆出了几件事，这一轮的期限多给一次（Portal 聊天最多等 16 秒）
+    const baseDeadline = deadline;
+    const extendDeadline = (ms: number) => {
+      deadline = Math.max(deadline, baseDeadline + ms);
+    };
     const cutoffMs = limits.cutoffMs && (this.deps.cutoffMs ?? limits.cutoffMs);
-    const cutoff = cutoffMs ? this.now() + cutoffMs : deadline;
+    // 没有截断时只看总期限（一句多问会把它往后挪）
+    const cutoff = cutoffMs ? this.now() + cutoffMs : Number.POSITIVE_INFINITY;
     // 思考那一路：到截断或总期限，先到哪个算哪个
     const thinkLeft = () => Math.min(cutoff, deadline) - this.now();
     const limit =
@@ -775,6 +800,11 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
           env.HELPDESK_QUERY_CONTEXT,
           HELPDESK_DEFAULTS.queryContext,
         );
+      // 一句话问了几件事时拆开、各给一张卡（multi-ask.ts；HELPDESK_MULTI_ASK，缺省见 HELPDESK_DEFAULTS）
+      const multiAsk = helpdeskSwitch(
+        env.HELPDESK_MULTI_ASK,
+        HELPDESK_DEFAULTS.multiAsk,
+      );
       const reranker =
         rerank &&
         openRouterReranker({
@@ -807,6 +837,8 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
             direct: rerank?.direct ?? null,
             cardContext,
             queryContext,
+            multiAsk,
+            extendDeadline,
           }),
           initialAssistState({
             locale: input.locale,
@@ -863,16 +895,26 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
           : NO_MATCH_TURN);
       return this.logAndDecide(input, runId, {
         queryText: state.queryText,
-        candidateIds: state.candidates.map((c) => c.id),
+        // 一句多问：每件事自己的候选也算看过（发布检查按它估计改一张卡要重问几道）
+        candidateIds: [
+          ...new Set([
+            ...state.candidates.map((c) => c.id),
+            ...state.askCandidates.flat().map((c) => c.id),
+          ]),
+        ],
         chosen: turn.kind === 'answer' ? state.chosen : null,
         reason,
-        model: trail.includes('pick_faq') ? model : null,
+        model:
+          trail.includes('pick_faq') || trail.includes('pick_asks')
+            ? model
+            : null,
         started,
         left,
         assisted: {
           turn,
           intent: state.intent,
           confidence: state.confidence,
+          ...(state.asks.length ? { asks: state.asks.length } : {}),
         },
         release: retrieved.release,
         branch,

@@ -90,7 +90,9 @@ async function pool<T>(
 }
 
 const sameAnswer = (a: ReleaseEvalAnswer, b: ReleaseEvalAnswer) =>
-  a.kind === b.kind && a.nodeId === b.nodeId;
+  a.kind === b.kind &&
+  a.nodeId === b.nodeId &&
+  (a.more ?? []).join() === (b.more ?? []).join();
 
 const anyHit = (stats: EvalAskStats | undefined) =>
   stats !== undefined &&

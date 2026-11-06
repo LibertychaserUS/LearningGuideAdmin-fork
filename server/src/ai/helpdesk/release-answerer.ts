@@ -73,6 +73,7 @@ type Reply = {
   suggestion: { faqId: string } | null;
   kind?: string;
   nodeId?: string | null;
+  more?: { faqId: string }[];
   intent?: SuggestIntent | null;
   covered?: boolean | null;
 };
@@ -201,6 +202,9 @@ export function createReleaseAnswerer(
           return {
             kind,
             nodeId,
+            ...(kind === 'answer' && reply?.more?.length
+              ? { more: reply.more.map((card) => card.faqId) }
+              : {}),
             intent: reply?.intent ?? null,
             covered: kind === 'clarify' ? (reply?.covered ?? null) : null,
             costUsd,

@@ -63,6 +63,7 @@ type Obj = Record<string, Json>;
 const fixture = JSON.parse(
   readFileSync(join(__dirname, 'fixtures', 'helpdesk-contract.json'), 'utf8'),
 ) as {
+  version: number;
   enums: Record<string, string[]> & {
     agentProblemCode: Record<string, string[]>;
   };
@@ -96,6 +97,8 @@ const fixture = JSON.parse(
     suggestClarifyResponse: Obj;
     suggestClarifyNotCoveredResponse: Obj;
     suggestNoMatchContextResponse: Obj;
+    suggestMultiAskRequest: Obj & { context: Obj };
+    suggestMultiAskResponse: Obj & { more: Obj[]; missed: number };
     traceparentHeader: string;
     outcomeRequest: Obj;
     helpfulOutcomeRequest: Obj;
@@ -743,6 +746,45 @@ describe('Helpdesk contract fixture: Admin answers Portal', () => {
       releaseVersion: null,
       guard: { result: 'fallback', fallback: ['reply'] },
     });
+  });
+
+  it('v8: one message that asks several things: the first card is the suggestion, the further cards (in the order asked) and the missed asks follow the rules', () => {
+    const request = toAdmin.suggestMultiAskRequest;
+    const example = toAdmin.suggestMultiAskResponse;
+    expect(fixture.version).toBeGreaterThanOrEqual(8);
+    // nothing new is sent: the asks are Admin's to find in the message (and no card on screen, so it may split)
+    expect(parseSuggestContext(request.context)).toEqual(request.context);
+    expect(request.context).not.toHaveProperty('nodeId');
+    expect(suggestTurnProblems(example)).toEqual([]);
+    expect(Object.keys(example).sort()).toEqual(
+      [
+        ...SUGGEST_TURN_FIELDS,
+        'suggestion',
+        'alternatives',
+        'more',
+        'missed',
+      ].sort(),
+    );
+    expect(example).toMatchObject({ kind: 'answer', missed: 1 });
+    expect(example.more).toHaveLength(1);
+    expect(example.more[0].faqId).not.toBe(example.nodeId);
+    // the extra keys are only for an answer, and only when present
+    for (const other of Object.values(v6Responses())) {
+      expect(other).not.toHaveProperty('more');
+      expect(other).not.toHaveProperty('missed');
+    }
+    expect(
+      suggestTurnProblems({
+        ...toAdmin.suggestNoMatchContextResponse,
+        more: example.more,
+      }),
+    ).toContain('no_match has no more cards');
+    expect(
+      suggestTurnProblems({
+        ...example,
+        more: [{ ...example.more[0], faqId: example.nodeId }],
+      }),
+    ).toContain('more cards are all different');
   });
 
   it('v6: a request without context keeps exactly the v5 answer (no new fields)', () => {

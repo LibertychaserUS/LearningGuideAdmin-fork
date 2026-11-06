@@ -31,9 +31,13 @@ const label = (q: EvalQuestion, keyOf: Map<string, string>) =>
     ? (keyOf.get(q.faqId ?? '') ?? q.faqId ?? '?')
     : q.expect;
 
+const cardLabel = (id: string | null, keyOf: Map<string, string>) =>
+  keyOf.get(id ?? '') ?? id ?? 'none';
+
 const gotLabel = (got: ReleaseEvalAnswer, keyOf: Map<string, string>) =>
   got.kind === 'answer' || got.kind === 'clarify'
-    ? `${got.kind}:${keyOf.get(got.nodeId ?? '') ?? got.nodeId ?? 'none'}`
+    ? // 一句多问的几张卡用「+」连起来（第一张在前）
+      `${got.kind}:${[got.nodeId, ...(got.more ?? [])].map((id) => cardLabel(id, keyOf)).join('+')}`
     : got.kind === 'error'
       ? `error:${got.failure ?? 'unknown'}`
       : got.kind;

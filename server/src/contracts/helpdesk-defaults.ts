@@ -23,6 +23,10 @@ export const HELPDESK_DEFAULTS = {
   rerankDirect: { score: 0.816, margin: 0.05 },
   searchScope: 'all',
   queryContext: true,
+  /**
+   * 一句话问了几件事时拆开、各给一张卡（HELPDESK_MULTI_ASK；multi-ask.ts）。真模型评测与 owner 点头之前缺省关。
+   */
+  multiAsk: false,
 } as const;
 
 /** 关掉某一层用的值（大小写不论）。 */
