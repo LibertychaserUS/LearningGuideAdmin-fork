@@ -6,6 +6,13 @@ import {
   HELPDESK_DEFAULTS,
   helpdeskSetting,
 } from '../../../../contracts/helpdesk-defaults';
+import {
+  evalCacheKey,
+  evalCacheScope,
+  measureSpend,
+  replayLatency,
+  reportSpend,
+} from '../../../../contracts/helpdesk-eval-cache';
 import type { FaqNodeType } from '../../../../contracts/helpdesk-qa';
 import { query, withTransaction } from '../../../lib/db';
 import { FAQ_LIMITS, type HelpdeskFaq } from './faqContracts';
@@ -165,7 +172,10 @@ export function openRouterFaqEmbedder(
       if (!response.ok) throw new Error(`embeddings: HTTP ${response.status}`);
       const body = (await response.json()) as {
         data?: { index?: number; embedding?: unknown }[];
+        usage?: { cost?: unknown };
       };
+      // 发布前检查里记进这一问的花费（学员问句的向量）；线上与建索引不在检查的一问里，不记
+      reportSpend('embed', body.usage?.cost);
       const rows = [...(body.data ?? [])].sort(
         (a, b) => (a.index ?? 0) - (b.index ?? 0),
       );
@@ -183,6 +193,79 @@ export function openRouterFaqEmbedder(
           !vector.every((x) => typeof x === 'number' && Number.isFinite(x))
         )
           throw new Error('embeddings: malformed vector');
+      return vectors as number[][];
+    },
+  };
+}
+
+/**
+ * 发布前检查用的问句向量缓存（契约 contracts/helpdesk-eval-cache.ts 的 embed 层）：键 = (模型, 文本)，
+ * 值 = float32 的 base64。同一句话的向量每次问服务商都有 1e-4 级的抖动（2026-11-05 实测，换服务商也一样），
+ * 记下来之后两次检查用的是同一个向量，比较才只反映卡片的改动。返回的向量一律是 float32 精度（命中与没命中一样）。
+ * 不在检查的一问里（线上聊天、建索引）→ 原样交给 inner。
+ */
+export function cachedFaqEmbedder(inner: FaqEmbedder): FaqEmbedder {
+  const encode = (vector: readonly number[]) =>
+    Buffer.from(Float32Array.from(vector).buffer).toString('base64');
+  const decode = (value: unknown): number[] | null => {
+    if (typeof value !== 'string' || value === '') return null;
+    const bytes = Buffer.from(value, 'base64');
+    if (bytes.length === 0 || bytes.length % 4 !== 0) return null;
+    const floats = new Float32Array(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length),
+    );
+    return floats.every((x) => Number.isFinite(x)) ? Array.from(floats) : null;
+  };
+  return {
+    model: inner.model,
+    async embed(texts, signal) {
+      const scope = evalCacheScope();
+      if (!scope || texts.length === 0) return inner.embed(texts, signal);
+      const keys = texts.map((text) =>
+        evalCacheKey('embed', { model: inner.model, text }),
+      );
+      const stats = scope.stats.embed;
+      const known =
+        scope.mode === 'use'
+          ? await scope.store.get('embed', keys)
+          : new Map<string, never>();
+      const vectors = keys.map((key) => decode(known.get(key)?.value));
+      const missing = vectors.flatMap((v, i) => (v === null ? [i] : []));
+      if (missing.length === 0) {
+        const entries = keys.map((key) => known.get(key)!);
+        if (
+          !(await replayLatency(
+            Math.max(...entries.map((e) => e.latencyMs)),
+            signal,
+          ))
+        )
+          throw new Error('embeddings: aborted');
+        stats.hits += 1;
+        stats.savedUsd += entries.reduce((sum, e) => sum + e.costUsd, 0);
+        return vectors as number[][];
+      }
+      stats.misses += 1;
+      const started = performance.now();
+      const { value: fresh, spent } = await measureSpend(() =>
+        inner.embed(
+          missing.map((i) => texts[i]),
+          signal,
+        ),
+      );
+      const latencyMs = Math.round(performance.now() - started);
+      const rows = missing.map((i, at) => {
+        const encoded = encode(fresh[at]);
+        vectors[i] = decode(encoded);
+        return {
+          key: keys[i],
+          entry: {
+            value: encoded,
+            latencyMs,
+            costUsd: spent.embed / missing.length,
+          },
+        };
+      });
+      await scope.store.put('embed', rows).catch(() => undefined);
       return vectors as number[][];
     },
   };
@@ -436,6 +519,11 @@ export type FaqVectorSearch = {
   warm?(release: number): Promise<void>;
   /** 内存占用：留着几版、共几条不同的向量、约多少字节（报告和监控用）。 */
   memory?(): FaqVectorMemory;
+  /**
+   * 同一份内存索引，只是问句向量经 wrap 包过的模型算（发布前检查的缓存，cachedFaqEmbedder）：
+   * 不另读一份卡片向量，也不和线上共用问句向量的内存表。
+   */
+  withEmbedder?(wrap: (embedder: FaqEmbedder) => FaqEmbedder): FaqVectorSearch;
 };
 
 export type FaqVectorMemory = {
@@ -660,10 +748,11 @@ export function createFaqVectorSearch(deps: {
   async function queryVector(
     embedder: FaqEmbedder,
     text: string,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    remember: boolean,
   ): Promise<Float32Array> {
     const key = `${embedder.model}\n${text}`;
-    const cached = queries.get(key);
+    const cached = remember ? queries.get(key) : undefined;
     if (cached) return cached;
     const [vector] = await hedgedCall(
       (attempt) => embedder.embed([text], attempt),
@@ -671,32 +760,48 @@ export function createFaqVectorSearch(deps: {
       signal,
     );
     const value = unit(vector);
+    if (!remember) return value;
     if (queries.size >= FAQ_VECTOR_LIMITS.queryCacheMax)
       queries.delete(queries.keys().next().value as string);
     queries.set(key, value);
     return value;
   }
 
+  /** wrap 给了 = 问句向量换一个来源（发布前检查的缓存）；不用、也不写进线上的问句向量表。 */
+  async function rank(
+    release: number,
+    raw: string,
+    signal: AbortSignal | undefined,
+    wrap?: (embedder: FaqEmbedder) => FaqEmbedder,
+  ): Promise<FaqVectorHit[] | null> {
+    const base = deps.embedder();
+    const text = clean(raw).slice(0, FAQ_VECTOR_LIMITS.queryCharsMax);
+    if (!base || text === '' || knownEmpty(release, base.model)) return null;
+    // 读这一版的向量与算问题向量同时做（刚启动或刚发布时，读一版约 1 秒）
+    const loading = index(release, base.model);
+    const embedding = queryVector(
+      wrap ? wrap(base) : base,
+      text,
+      signal,
+      !wrap,
+    );
+    embedding.catch(() => undefined); // 这一版没有向量就先返回了，别留下没处理的失败
+    const loaded = await loading;
+    if (loaded.nodes.length === 0) return null;
+    const query = await embedding;
+    return loaded.nodes
+      .map(({ vectors, ...node }) => ({
+        ...node,
+        similarity: Math.max(...vectors.map((v) => dot(query, v))),
+      }))
+      .sort((a, b) => b.similarity - a.similarity || (a.id < b.id ? -1 : 1));
+  }
+
   return {
-    async rank(release, raw, signal) {
-      const embedder = deps.embedder();
-      const text = clean(raw).slice(0, FAQ_VECTOR_LIMITS.queryCharsMax);
-      if (!embedder || text === '' || knownEmpty(release, embedder.model))
-        return null;
-      // 读这一版的向量与算问题向量同时做（刚启动或刚发布时，读一版约 1 秒）
-      const loading = index(release, embedder.model);
-      const embedding = queryVector(embedder, text, signal);
-      embedding.catch(() => undefined); // 这一版没有向量就先返回了，别留下没处理的失败
-      const loaded = await loading;
-      if (loaded.nodes.length === 0) return null;
-      const query = await embedding;
-      return loaded.nodes
-        .map(({ vectors, ...node }) => ({
-          ...node,
-          similarity: Math.max(...vectors.map((v) => dot(query, v))),
-        }))
-        .sort((a, b) => b.similarity - a.similarity || (a.id < b.id ? -1 : 1));
-    },
+    rank: (release, raw, signal) => rank(release, raw, signal),
+    withEmbedder: (wrap) => ({
+      rank: (release, raw, signal) => rank(release, raw, signal, wrap),
+    }),
     async warm(release) {
       const embedder = deps.embedder();
       if (!embedder) return;

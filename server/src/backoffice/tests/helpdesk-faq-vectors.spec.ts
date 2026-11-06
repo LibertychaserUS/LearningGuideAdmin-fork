@@ -1,3 +1,10 @@
+import {
+  createMemoryEvalCacheStore,
+  emptyAskStats,
+  measureSpend,
+  runInEvalAsk,
+  type EvalCacheMode,
+} from '../../contracts/helpdesk-eval-cache';
 import type { HelpdeskFaq } from '../modules/helpdesk/faqs/faqContracts';
 import type {
   FaqRepository,
@@ -6,6 +13,7 @@ import type {
 } from '../modules/helpdesk/faqs/faqRepository';
 import {
   FAQ_VECTOR_LIMITS,
+  cachedFaqEmbedder,
   createFaqVectorSearch,
   faqVectorTexts,
   hedgedCall,
@@ -313,6 +321,18 @@ describe('openRouterFaqEmbedder', () => {
     });
   });
 
+  it('reports what the call cost (usage.cost) to a release check that measures it', async () => {
+    const { impl } = fetchReturning(200, {
+      data: [{ index: 0, embedding: [1, 0] }],
+      usage: { cost: 4e-8 },
+    });
+    const embedder = openRouterFaqEmbedder(env, impl);
+    const { spent } = await measureSpend(
+      () => embedder?.embed(['a']) ?? Promise.resolve([]),
+    );
+    expect(spent).toEqual({ embed: 4e-8, rerank: 0 });
+  });
+
   it('does not call the model for no texts', async () => {
     const { calls, impl } = fetchReturning(200, { data: [] });
     expect(await openRouterFaqEmbedder(env, impl)?.embed([])).toEqual([]);
@@ -540,6 +560,77 @@ describe('createFaqVectorSearch', () => {
     expect(await vectors.rank(RELEASE, '退款')).toBeNull();
     clock = FAQ_VECTOR_LIMITS.emptyRecheckMs + 1;
     expect(await vectors.rank(RELEASE, '退款')).not.toBeNull();
+  });
+});
+
+describe('the release check: question vectors from the eval cache (cachedFaqEmbedder, withEmbedder)', () => {
+  const table = { 'Refund?': [1, 0, 0], 'Password?': [0, 1, 0] };
+  const nodes = [
+    {
+      id: 'refund',
+      questionEn: 'Refund?',
+      questionZh: 'Refund?',
+      phrasings: [],
+    },
+    {
+      id: 'password',
+      questionEn: 'Password?',
+      questionZh: 'Password?',
+      phrasings: [],
+    },
+  ];
+  const ask = <T>(
+    store: ReturnType<typeof createMemoryEvalCacheStore>,
+    mode: EvalCacheMode,
+    fn: () => Promise<T>,
+  ) => {
+    const stats = emptyAskStats();
+    return runInEvalAsk({ store, mode, stats }, fn).then((value) => ({
+      value,
+      stats,
+    }));
+  };
+
+  it('embeds a question once across checks, at float32 precision, sharing the release index with live search', async () => {
+    const store = memoryStore(nodes);
+    // a question vector with more precision than float32 holds
+    const embedder = fakeEmbedder({ ...table, 'my refund': [0.3, 0.1, 0] });
+    await indexFaqRelease({ store, embedder, release: RELEASE });
+    const live = createFaqVectorSearch({ store, embedder: () => embedder });
+    const check = live.withEmbedder?.(cachedFaqEmbedder);
+    const cache = createMemoryEvalCacheStore();
+    const before = embedder.calls.length;
+    const first = await ask(cache, 'use', () =>
+      check!.rank(RELEASE, 'my refund'),
+    );
+    const second = await ask(cache, 'use', () =>
+      check!.rank(RELEASE, 'my refund'),
+    );
+    expect(embedder.calls.length - before).toBe(1);
+    expect(first.stats.embed.misses).toBe(1);
+    expect(second.stats.embed.hits).toBe(1);
+    expect(second.value).toEqual(first.value);
+    expect(first.value?.[0].id).toBe('refund');
+    // the stored vector is float32: what a hit gives back is what the miss used
+    const [row] = [...cache.rows.values()];
+    expect(typeof row.value).toBe('string');
+    // the live search keeps its own question vectors, outside the check
+    await live.rank(RELEASE, 'my refund');
+    expect(embedder.calls.length - before).toBe(2);
+    expect(live.memory?.().releases).toBe(1);
+  });
+
+  it('refresh asks the model again; outside a check the wrapper only passes through', async () => {
+    const embedder = fakeEmbedder(table);
+    const cached = cachedFaqEmbedder(embedder);
+    const cache = createMemoryEvalCacheStore();
+    await ask(cache, 'use', () => cached.embed(['Refund?']));
+    await ask(cache, 'refresh', () => cached.embed(['Refund?']));
+    await ask(cache, 'use', () => cached.embed(['Refund?', 'Password?']));
+    expect(embedder.calls).toEqual([['Refund?'], ['Refund?'], ['Password?']]);
+    await cached.embed(['Refund?']);
+    expect(embedder.calls).toHaveLength(4);
+    expect(cache.rows.size).toBe(2);
   });
 });
 

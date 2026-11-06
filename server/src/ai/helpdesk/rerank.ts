@@ -6,6 +6,13 @@ import {
   HELPDESK_DEFAULTS,
   helpdeskSetting,
 } from '../../contracts/helpdesk-defaults';
+import {
+  evalCacheKey,
+  evalCacheScope,
+  measureSpend,
+  replayLatency,
+  reportSpend,
+} from '../../contracts/helpdesk-eval-cache';
 
 /**
  * 精排（分级方案 L2，owner 2026-11-02：精排也走 OpenRouter，按价格选，参数量不限）。
@@ -104,7 +111,10 @@ export function openRouterReranker(input: {
       if (!response.ok) return null;
       const body = (await response.json()) as {
         results?: { index?: unknown; relevance_score?: unknown }[];
+        usage?: { cost?: unknown };
       };
+      // 精排也要钱（OpenRouter 回 usage.cost）：检查里记进这一问的花费，线上聊天不记
+      reportSpend('rerank', body.usage?.cost);
       const scores: (number | null)[] = documents.map(() => null);
       for (const row of body.results ?? []) {
         if (
@@ -120,6 +130,74 @@ export function openRouterReranker(input: {
     } catch {
       return null;
     }
+  };
+}
+
+/**
+ * 发布前检查用的精排缓存（契约 contracts/helpdesk-eval-cache.ts 的 rerank 层）：分数按（模型, 问句, 卡片文本）
+ * 一对一对记（Voyage 这类交叉编码器每一对单独打分，和同批的其他卡无关），卡改了只重算那几对。
+ * 全部命中：照记录的耗时等（不超过精排时限）再给分数；有没记的：只把没记的那几张拿去真精排。
+ * 精排失败（null）不记。不在检查的一问里（线上聊天）→ 原样交给 inner。
+ */
+export function cachedReranker(inner: Reranker, model: string): Reranker {
+  return async (query, documents) => {
+    const scope = evalCacheScope();
+    if (!scope || documents.length === 0) return inner(query, documents);
+    const asked = query.slice(0, RERANK_LIMITS.queryChars);
+    const keys = documents.map((document) =>
+      evalCacheKey('rerank', { model, query: asked, document }),
+    );
+    const stats = scope.stats.rerank;
+    const known =
+      scope.mode === 'use'
+        ? await scope.store.get('rerank', keys)
+        : new Map<string, never>();
+    const scores = keys.map((key) => {
+      const value = known.get(key)?.value;
+      return typeof value === 'number' && Number.isFinite(value) ? value : null;
+    });
+    const missing = scores.flatMap((score, index) =>
+      score === null ? [index] : [],
+    );
+    if (missing.length === 0) {
+      const entries = keys.map((key) => known.get(key)!);
+      const latency = Math.max(...entries.map((e) => e.latencyMs));
+      await replayLatency(Math.min(latency, RERANK_LIMITS.timeoutMs));
+      stats.hits += 1;
+      stats.savedUsd += entries.reduce((sum, e) => sum + e.costUsd, 0);
+      return scores as number[];
+    }
+    stats.misses += 1;
+    // 记下的那几对没再花钱
+    stats.savedUsd += [...known.values()].reduce(
+      (sum, e) => sum + e.costUsd,
+      0,
+    );
+    const started = performance.now();
+    const { value: fresh, spent } = await measureSpend(() =>
+      inner(
+        asked,
+        missing.map((index) => documents[index]),
+      ),
+    );
+    if (!fresh) return null;
+    const latencyMs = Math.round(performance.now() - started);
+    missing.forEach((index, at) => (scores[index] = fresh[at]));
+    await scope.store
+      .put(
+        'rerank',
+        missing.map((index, at) => ({
+          key: keys[index],
+          entry: {
+            value: fresh[at],
+            latencyMs,
+            // 一次请求的钱按卡数摊到每一对
+            costUsd: spent.rerank / missing.length,
+          },
+        })),
+      )
+      .catch(() => undefined);
+    return scores as number[];
   };
 }
 

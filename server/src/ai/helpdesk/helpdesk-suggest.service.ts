@@ -53,7 +53,12 @@ import {
   initialFaqState,
 } from './workflow/faq-workflow';
 import { learnerOf } from './workflow/guard';
-import { openRouterReranker, rerankConfig, rerankedSource } from './rerank';
+import {
+  openRouterReranker,
+  rerankConfig,
+  rerankedSource,
+  type Reranker,
+} from './rerank';
 import {
   HELPDESK_DEFAULTS,
   helpdeskSwitch,
@@ -228,6 +233,8 @@ export type HelpdeskSuggestDeps = {
   deadlineMs?: number;
   /** 思考那一路的截断（默认见 suggestLimits）；只有评测改。 */
   cutoffMs?: number;
+  /** 包一层精排（发布前检查的缓存，eval-cache；线上不给）。 */
+  wrapReranker?: (inner: Reranker, model: string) => Reranker;
   now?: () => number;
 };
 
@@ -768,18 +775,24 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
           env.HELPDESK_QUERY_CONTEXT,
           HELPDESK_DEFAULTS.queryContext,
         );
-      const ranked = rerank
-        ? rerankedSource(
-            this.deps.qa,
-            openRouterReranker({
-              model: rerank.model,
-              apiKey,
-              baseUrl: env.OPENROUTER_BASE_URL?.trim() || DEFAULT_BASE_URL,
-            }),
-            rerank.keep,
-            { withContext: cardContext },
-          )
-        : this.deps.qa;
+      const reranker =
+        rerank &&
+        openRouterReranker({
+          model: rerank.model,
+          apiKey,
+          baseUrl: env.OPENROUTER_BASE_URL?.trim() || DEFAULT_BASE_URL,
+        });
+      const ranked =
+        rerank && reranker
+          ? rerankedSource(
+              this.deps.qa,
+              this.deps.wrapReranker
+                ? this.deps.wrapReranker(reranker, rerank.model)
+                : reranker,
+              rerank.keep,
+              { withContext: cardContext },
+            )
+          : this.deps.qa;
       const qa = hedged ? sharedLookups(ranked) : ranked;
       const assist = (
         target: ModelTarget,

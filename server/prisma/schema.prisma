@@ -676,6 +676,21 @@ model HelpdeskFaqReleaseVector {
   @@map("helpdesk_faq_release_vectors")
 }
 
+/// 发布前检查的分层结果缓存（迁移 20261106000000_helpdesk_eval_stage_cache，contracts/helpdesk-eval-cache.ts）：
+/// layer = embed | rerank | step，key = 输入的 SHA-256（不存原文）；14 天后不再用。CHECK 只在迁移里；原生 SQL 读写。
+model HelpdeskEvalStageCache {
+  layer     String
+  key       String
+  value     Json
+  latencyMs Int      @map("latency_ms")
+  costUsd   Float    @default(0) @map("cost_usd")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([layer, key])
+  @@index([createdAt])
+  @@map("helpdesk_eval_stage_cache")
+}
+
 /// FAQ 的流程树与对象表（迁移 20261031120000_helpdesk_faq_map，faqMap.ts / faqMapRepository.ts）：一张节点表，
 /// kind 区分 stage / step / deviation / object / cell。层级（触发器）、CHECK 与「每个对象每个属性一个格子」的
 /// 部分唯一索引只在迁移里；BackOffice 原生 SQL 读写，不经 Prisma。发布时随快照冻结。

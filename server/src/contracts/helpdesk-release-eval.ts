@@ -6,6 +6,7 @@
  *
  * 测试集的问题是生成的（不含用户数据）；回归用例是员工接受过的、脱敏过的用户原话。
  */
+import type { EvalAskStats, EvalCacheMode } from './helpdesk-eval-cache';
 import type { SuggestIntent } from './helpdesk-qa';
 
 export const HELPDESK_RELEASE_ANSWERER = Symbol('HELPDESK_RELEASE_ANSWERER');
@@ -27,8 +28,12 @@ export type ReleaseEvalAnswer = {
    * 超时也是学员没拿到答案：报告里照实算「没答上」，不当作「没跑」。
    */
   failure?: string;
-  /** 这个问题花的钱（美元，来自模型回复的计价；没有计价 = 0）。 */
+  /** 这个问题花的钱（美元）：模型 + 精排 + 问句向量（服务商回的计价；没有计价 = 0）。 */
   costUsd: number;
+  /** costUsd 按层分开（答题器报了才有）。 */
+  spend?: { model: number; rerank: number; embed: number };
+  /** 分层缓存这一问命中了几次、省了多少（contracts/helpdesk-eval-cache.ts；没开缓存不写）。 */
+  cache?: EvalAskStats;
   /** 发出了却没有带价格回复的请求数。 */
   unpricedCalls: number;
 };
@@ -39,6 +44,8 @@ export type ReleaseEvalSession = {
     message: string;
     locale: ReleaseEvalLocale;
     signal?: AbortSignal;
+    /** 缓存怎么用（缺省 use）：refresh = 漂移抽查，bypass = 复问新出的错。 */
+    cache?: EvalCacheMode;
   }): Promise<ReleaseEvalAnswer>;
 };
 
