@@ -412,13 +412,17 @@ describe('the live-pipeline check: pass or fail', () => {
     // a language slice below 200 questions is only tracked
     expect(suites.get('language:zh-TW')).toMatchObject({
       status: 'track',
+      rule: 'point',
       n: 1,
     });
+    expect(suites.get('s650')?.rule).toBe('interval');
     expect(report.receipt).toMatchObject({
       model: 'google/gemma-4-31b-it',
       questions: 255,
       liveVersion: 1,
       devSet: 'eval-v6-dev',
+      wrongRateMax: 0.02,
+      sliceMin: 200,
     });
   });
 
@@ -891,5 +895,89 @@ describe('the live-pipeline check: duplicate texts (a note, never a fail)', () =
       },
     ]);
     expect(report.summary).toContain('1 new near-duplicate text(s)');
+  });
+});
+
+describe('the live-pipeline check: the estimate before it starts', () => {
+  it('keeps for each card how many questions had it among the candidates, and what a paid question cost', async () => {
+    const { answerer } = fakeAnswerer((message) => ({
+      ...right(message),
+      candidates: [id(1), id(3)],
+      costUsd: 0.0004,
+    }));
+    const report = await createModelReleaseGate({
+      answerer,
+      items: () => refunds(250),
+      now: fixed,
+    }).evaluate(input());
+    expect(report.candidatePool).toEqual({ [id(1)]: 250, [id(3)]: 250 });
+    expect(report.metrics).toMatchObject({
+      paidQuestions: 250,
+      paidQuestionUsd: 0.0004,
+    });
+  });
+
+  it('estimates the questions whose candidates had a touched card, plus follow-ups and the drift re-asks, from the live check', async () => {
+    const gate = createModelReleaseGate({
+      answerer: fakeAnswerer(right).answerer,
+      items: () => [...refunds(250), ...items],
+      now: fixed,
+    });
+    const liveReport = {
+      kind: 'combined',
+      parts: [
+        { kind: 'retrieval', metrics: {} },
+        {
+          kind: 'model',
+          metrics: { paidQuestionUsd: 0.0005 },
+          candidatePool: { [id(3)]: 37, [id(1)]: 255 },
+        },
+      ],
+    };
+    const edited: FaqReleaseSnapshot = {
+      ...snapshot,
+      nodes: snapshot.nodes.map((n) =>
+        n.id === id(3) ? { ...n, answerZh: '新的答案' } : n,
+      ),
+    };
+    const estimate = await gate.estimate?.({
+      snapshot: edited,
+      previous: { version: 1, evalReport: liveReport, snapshot },
+    });
+    // 37 in the pool of password + 1 question labelled password (a3) + 40 drift re-asks; no follow-up parent touched
+    expect(estimate).toEqual({
+      questions: 255,
+      single: 255,
+      followups: 0,
+      touchedCards: 1,
+      paid: 78,
+      usd: 0.039,
+      budgetUsd: MODEL_GATE.budgetUsd,
+      basis: 'last_check',
+    });
+    // nothing changed: only the drift re-asks are paid
+    expect(
+      (
+        await gate.estimate?.({
+          snapshot,
+          previous: { version: 1, evalReport: liveReport, snapshot },
+        })
+      )?.paid,
+    ).toBe(MODEL_GATE.driftSample);
+    // no check of v2 on the live version: only the count and the cap
+    expect(
+      await gate.estimate?.({
+        snapshot: edited,
+        previous: { version: 1, evalReport: null, snapshot },
+      }),
+    ).toMatchObject({ paid: 255, usd: null, basis: 'no_history' });
+  });
+
+  it('gives no estimate without an API key (the check would not run)', async () => {
+    const gate = createModelReleaseGate({
+      answerer: fakeAnswerer(right, false).answerer,
+      items: () => items,
+    });
+    expect(await gate.estimate?.(input())).toBeNull();
   });
 });

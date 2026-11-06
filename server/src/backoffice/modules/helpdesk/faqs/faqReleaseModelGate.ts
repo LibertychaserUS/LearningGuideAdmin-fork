@@ -11,15 +11,18 @@ import {
   type CollisionReport,
 } from './release-check/collisions';
 import { judgeRelease } from './release-check/policy';
+import { estimateCheck } from './release-check/estimate';
 import {
   changedKeys,
   followupParents,
   loadReleaseEvalItems,
   planFollowups,
   planQuestions,
+  touchedNodes,
   type ReleaseEvalItem,
 } from './release-check/questions';
 import {
+  candidatePool,
   missesOf,
   releaseCheckMetrics,
   releaseCheckReceipt,
@@ -102,7 +105,49 @@ export function createModelReleaseGate(
   const now = deps.now ?? (() => new Date());
   const limits: ModelGateLimits = { ...MODEL_GATE, ...deps.limits };
   let items: ReleaseEvalItem[] | null = null;
+  const loadItems = () =>
+    (items ??= (deps.items ?? (() => loadReleaseEvalItems()))());
+  /** 这一版要问的全部题：单问（开发集 + 回归）与追问（只问动过的父卡）。 */
+  async function plan(
+    input: Pick<FaqReleaseGateInput, 'snapshot' | 'previous'>,
+  ) {
+    const regression = deps.regressionCases
+      ? await deps.regressionCases().catch(() => [])
+      : [];
+    const changed = changedKeys(input.previous?.snapshot, input.snapshot);
+    const single = planQuestions({
+      items: loadItems(),
+      snapshot: input.snapshot,
+      changed,
+      regression,
+      questionsMax: limits.questionsMax,
+    });
+    const followups = planFollowups({
+      items: loadItems(),
+      snapshot: input.snapshot,
+      parents: followupParents(input.previous?.snapshot, input.snapshot),
+      changed,
+    }).slice(0, Math.max(0, limits.questionsMax - single.questions.length));
+    return {
+      questions: [...single.questions, ...followups],
+      skipped: single.skipped,
+      leaked: single.leaked,
+    };
+  }
   return {
+    async estimate(input) {
+      if (!deps.answerer.available()) return null;
+      const { questions } = await plan(input);
+      return estimateCheck({
+        questions,
+        touched: input.previous?.snapshot
+          ? touchedNodes(input.previous.snapshot, input.snapshot)
+          : new Set(),
+        liveReport: input.previous?.evalReport ?? null,
+        driftSample: limits.driftSample,
+        budgetUsd: limits.budgetUsd,
+      });
+    },
     async evaluate(input: FaqReleaseGateInput): Promise<FaqReleaseEvalReport> {
       const report = (
         passed: boolean,
@@ -111,7 +156,7 @@ export function createModelReleaseGate(
         misses: ModelEvalMiss[] = [],
         extra: Pick<
           FaqReleaseEvalReport,
-          'suites' | 'receipt' | 'collisions'
+          'suites' | 'receipt' | 'collisions' | 'candidatePool'
         > = {},
       ): FaqReleaseEvalReport => ({
         kind: 'model',
@@ -128,26 +173,7 @@ export function createModelReleaseGate(
           false,
           'The live-pipeline check could not run: no model API key (OPENROUTER_API_KEY) on this server',
         );
-      items ??= (deps.items ?? (() => loadReleaseEvalItems()))();
-      const regression = deps.regressionCases
-        ? await deps.regressionCases().catch(() => [])
-        : [];
-      const changed = changedKeys(input.previous?.snapshot, input.snapshot);
-      const single = planQuestions({
-        items,
-        snapshot: input.snapshot,
-        changed,
-        regression,
-        questionsMax: limits.questionsMax,
-      });
-      const { skipped, leaked } = single;
-      const followups = planFollowups({
-        items,
-        snapshot: input.snapshot,
-        parents: followupParents(input.previous?.snapshot, input.snapshot),
-        changed,
-      }).slice(0, Math.max(0, limits.questionsMax - single.questions.length));
-      const questions = [...single.questions, ...followups];
+      const { questions, skipped, leaked } = await plan(input);
       if (questions.length === 0)
         return report(
           false,
@@ -237,8 +263,10 @@ export function createModelReleaseGate(
           model,
           questions,
           liveVersion: live?.version ?? null,
+          limits,
         }),
         ...(collisions ? { collisions: collisions.pairs } : {}),
+        candidatePool: candidatePool(run.results),
       };
       if (run.stopped === 'replaced')
         return report(

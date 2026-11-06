@@ -1194,7 +1194,88 @@
       },
       "interruptedHint": "检查没跑完（服务重启或部署打断了它）。点「重新检查」再跑一次。",
       "model": "真流程检查{result}：错卡 {wrong}%，{cases} 题，约 ¥{cny}",
-      "modelNotRun": "真流程检查：未运行"
+      "modelNotRun": "真流程检查：未运行",
+      "estimate": "预计问 {questions} 道题（单问 {single}、追问 {followups}）；约 {paid} 道要真问，约 ¥{cny}（上限 ¥{cap}）。",
+      "estimateFirst": "预计问 {questions} 道题（单问 {single}、追问 {followups}）；上线版本没有可参考的检查记录，可能都要真问，最多 ¥{cap}。",
+      "details": "检查详情",
+      "hideDetails": "收起详情",
+      "report": {
+        "label": "真流程检查详情",
+        "tabs": {
+          "suites": "套件",
+          "slices": "切片",
+          "misses": "问题",
+          "spend": "花费",
+          "duplicates": "重复问法"
+        },
+        "columns": {
+          "suite": "套件",
+          "status": "作用",
+          "n": "题数",
+          "wrong": "错卡率（95% 上界）",
+          "worse": "比线上新错",
+          "result": "结果"
+        },
+        "status": {
+          "gate": "拦发布",
+          "track": "只看"
+        },
+        "suite": {
+          "combined": "全部单问",
+          "s650": "S650（按卡写的题）",
+          "blind": "盲测题",
+          "regression": "回归题（员工接受的用户原话）",
+          "followup": "追问（屏幕上开着父卡）",
+          "changed": "改过的卡上的题",
+          "language": "语言 {value}",
+          "style": "写法 {value}"
+        },
+        "noSuites": "这次检查没有套件结果。",
+        "missColumns": {
+          "why": "原因",
+          "text": "问题",
+          "expected": "应出",
+          "got": "出了",
+          "live": "线上出了"
+        },
+        "why": {
+          "newly_wrong": "比线上新错",
+          "wrong_card": "错卡",
+          "timeout": "超时",
+          "error": "没得到回答"
+        },
+        "onScreen": "屏幕上：{key}",
+        "noMisses": "没有错卡、超时或没得到回答的题。",
+        "missesMore": "只列前 {count} 条，按轻重排。",
+        "spend": {
+          "total": "合计",
+          "model": "小模型",
+          "rerank": "精排",
+          "embed": "问句向量",
+          "candidate": "候选版本",
+          "live": "上线版本",
+          "checks": "复问与漂移抽查",
+          "saved": "缓存省下",
+          "byLayer": "按层",
+          "byVersion": "按版本",
+          "cache": "缓存命中（命中 / 没命中）",
+          "paid": "真问了 {count} 道",
+          "drift": "漂移抽查：{checked} 道里 {changed} 道和缓存不一样",
+          "unpriced": "{count} 次请求没有回价格，没算进花费"
+        },
+        "duplicates": {
+          "hint": "这一版新加到卡上的文字，和别的卡上的某条几乎一样（相似度 ≥ 0.95）：检索分不出该给哪张卡。只提醒，不拦发布。",
+          "pair": "{added}：「{addedText}」 ≈ {other}：「{otherText}」",
+          "byState": "两张卡靠用户状态分开，多半是该有的",
+          "none": "没有新的重复问法。"
+        },
+        "reason": {
+          "interval": "错卡率 95% 上界 {high}，超过 {max}",
+          "point": "错卡率 {rate}，超过 {max}（{scored} 题）",
+          "worse": "比线上新错 {count} 道",
+          "small": "不到 {min} 题，只看不拦"
+        }
+      }
     },
     "candidates": {
       "search": "搜索话题、问题或例句...",

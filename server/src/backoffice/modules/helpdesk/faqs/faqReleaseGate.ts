@@ -1,5 +1,6 @@
 import type { FaqRepository } from './faqRepository';
 import type { FaqTextCollision } from './release-check/collisions';
+import type { FaqCheckEstimate } from './release-check/estimate';
 import type { FaqReleaseSnapshot } from './faqRelease';
 import { toSimplified } from './faqSearchText';
 
@@ -58,6 +59,8 @@ export type FaqReleaseEvalReport = {
   receipt?: Record<string, string | number>;
   /** 这一版新加的、和别的卡几乎一样的文字（只提醒，release-check/collisions.ts）。 */
   collisions?: FaqTextCollision[];
+  /** 每张卡进过几道题的候选（节点 id → 题数）：下次检查前的估计用（release-check/estimate.ts）。 */
+  candidatePool?: Record<string, number>;
 };
 
 /** 一个套件或切片：gate = 不过就不能发布；track = 只看（「不比线上差」仍由全部题那一项拦）。 */
@@ -65,6 +68,8 @@ export type FaqEvalSuiteResult = {
   id: string;
   label: string;
   status: 'gate' | 'track';
+  /** interval = 95% 上界；point = 点估计（切片，题够多才算）；paired = 只看比线上新错。界面按它写原因。 */
+  rule: 'interval' | 'point' | 'paired';
   passed: boolean;
   n: number;
   metrics: Record<string, number>;
@@ -95,6 +100,10 @@ export type FaqReleaseEvalProgress = {
 
 export interface FaqReleaseGate {
   evaluate(input: FaqReleaseGateInput): Promise<FaqReleaseEvalReport>;
+  /** 开始之前估计要问几道、几道要真付钱、约多少钱（不调模型）；不花钱的检查没有它。 */
+  estimate?(
+    input: Pick<FaqReleaseGateInput, 'snapshot' | 'previous'>,
+  ): Promise<FaqCheckEstimate | null>;
 }
 
 export const RETRIEVAL_GATE = {
@@ -358,7 +367,9 @@ export function createFaqReleaseGate(options: {
   const enabled =
     options.modelEnabled ?? (options.model ? flag !== 'off' : flag === 'on');
   const now = options.now ?? (() => new Date());
+  const model = enabled ? options.model : undefined;
   return {
+    ...(model?.estimate ? { estimate: (input) => model.estimate!(input) } : {}),
     async evaluate(input) {
       await input.progress?.({ stage: 'retrieval', done: 0, total: 1 });
       const retrieval = await options.retrieval.evaluate(input);

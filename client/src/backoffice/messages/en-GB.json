@@ -1194,7 +1194,88 @@
       },
       "interruptedHint": "The check did not finish (a restart or deploy stopped it). Use Check again to run it again.",
       "model": "Live-pipeline check {result}: wrong card {wrong}%, {cases} questions, about ¥{cny}",
-      "modelNotRun": "Live-pipeline check: not run"
+      "modelNotRun": "Live-pipeline check: not run",
+      "estimate": "About {questions} questions ({single} single, {followups} follow-ups); about {paid} need asking again, about ¥{cny} (cap ¥{cap}).",
+      "estimateFirst": "About {questions} questions ({single} single, {followups} follow-ups); the live version has no check to go by, so all may need asking, at most ¥{cap}.",
+      "details": "Check details",
+      "hideDetails": "Hide details",
+      "report": {
+        "label": "Live-pipeline check details",
+        "tabs": {
+          "suites": "Suites",
+          "slices": "Slices",
+          "misses": "Questions",
+          "spend": "Spend",
+          "duplicates": "Duplicate wording"
+        },
+        "columns": {
+          "suite": "Suite",
+          "status": "Role",
+          "n": "Questions",
+          "wrong": "Wrong card (95% upper)",
+          "worse": "Newly wrong",
+          "result": "Result"
+        },
+        "status": {
+          "gate": "Blocks release",
+          "track": "Tracked"
+        },
+        "suite": {
+          "combined": "All single questions",
+          "s650": "S650 (written per card)",
+          "blind": "Blind questions",
+          "regression": "Regression (accepted user wording)",
+          "followup": "Follow-ups (parent card on screen)",
+          "changed": "Questions on changed cards",
+          "language": "Language {value}",
+          "style": "Style {value}"
+        },
+        "noSuites": "This check has no suite results.",
+        "missColumns": {
+          "why": "Why",
+          "text": "Question",
+          "expected": "Expected",
+          "got": "Got",
+          "live": "Live got"
+        },
+        "why": {
+          "newly_wrong": "Newly wrong",
+          "wrong_card": "Wrong card",
+          "timeout": "Timed out",
+          "error": "No answer"
+        },
+        "onScreen": "On screen: {key}",
+        "noMisses": "No wrong cards, timeouts or unanswered questions.",
+        "missesMore": "Showing the first {count}, most serious first.",
+        "spend": {
+          "total": "Total",
+          "model": "Small model",
+          "rerank": "Rerank",
+          "embed": "Question vectors",
+          "candidate": "Candidate version",
+          "live": "Live version",
+          "checks": "Re-asks and drift checks",
+          "saved": "Saved by the cache",
+          "byLayer": "By layer",
+          "byVersion": "By version",
+          "cache": "Cache (hits / misses)",
+          "paid": "{count} questions asked for real",
+          "drift": "Drift check: {changed} of {checked} differed from the cache",
+          "unpriced": "{count} requests came back without a price and are not counted"
+        },
+        "duplicates": {
+          "hint": "Text this release added to a card that is nearly the same as text on another card (similarity ≥ 0.95): retrieval cannot tell which card to give. A note only; it does not block the release.",
+          "pair": "{added}: “{addedText}” ≈ {other}: “{otherText}”",
+          "byState": "The two cards are told apart by user state; likely intended",
+          "none": "No new duplicate wording."
+        },
+        "reason": {
+          "interval": "Wrong-card 95% upper bound {high} is above {max}",
+          "point": "Wrong card {rate} is above {max} over {scored} questions",
+          "worse": "{count} newly wrong against the live version",
+          "small": "Under {min} questions, so tracked only"
+        }
+      }
     },
     "candidates": {
       "search": "Search topics, questions or examples...",

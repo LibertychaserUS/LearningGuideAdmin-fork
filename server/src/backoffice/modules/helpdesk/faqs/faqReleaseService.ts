@@ -34,6 +34,7 @@ import {
 import { createPgFaqRepository } from './faqRepository';
 import { uuidv7 } from '../../../../common/uuidv7';
 import { createEnvFaqVectorIndexer, type FaqVectorIndexer } from './faqVectors';
+import type { FaqCheckEstimate } from './release-check/estimate';
 
 /**
  * FAQ 问题树的发布（helpdesk-v5-faq-graph-design §2.2）：
@@ -484,15 +485,32 @@ export function createFaqReleaseService(
       checks: FaqGraphCheckResult;
       diff: FaqSnapshotDiff;
       published: number | null;
+      /** 「发布新版本」之前：真流程检查要问几道、估计几道真付钱、约多少钱；没有真流程检查 → null。 */
+      estimate: FaqCheckEstimate | null;
     }> {
       const [snapshot, published] = await Promise.all([
         workingSnapshot(),
         publishedRelease(),
       ]);
+      // 估计失败不影响页面（只是不显示估计）
+      const estimate =
+        (await gate
+          .estimate?.({
+            snapshot,
+            previous: published
+              ? {
+                  version: published.version,
+                  evalReport: published.evalReport,
+                  snapshot: published.snapshot,
+                }
+              : null,
+          })
+          .catch(() => null)) ?? null;
       return {
         checks: checkFaqGraph(snapshot),
         diff: diffSnapshots(published?.snapshot ?? null, snapshot),
         published: published?.version ?? null,
+        estimate,
       };
     },
 

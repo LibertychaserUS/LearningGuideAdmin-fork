@@ -83,6 +83,24 @@ export function missesOf(
     }));
 }
 
+/** 这一问真付了模型的钱（模型步没命中缓存；没开缓存 = 都算）。 */
+const paidStep = (r: QuestionResult) =>
+  !r.candidate.got.cache || r.candidate.got.cache.step.misses > 0;
+
+/**
+ * 每张卡进过几道题的候选（候选版本这一边，模型看到的、精排之后）：下次检查前估计「改这张卡要重问几道」
+ *（estimate.ts）。按节点 id；只记进过候选的卡。
+ */
+export function candidatePool(
+  results: readonly QuestionResult[],
+): Record<string, number> {
+  const pool: Record<string, number> = {};
+  for (const r of results)
+    for (const id of new Set(r.candidate.got.candidates ?? []))
+      pool[id] = (pool[id] ?? 0) + 1;
+  return pool;
+}
+
 /** 题集的指纹：题号与原文变了，两次检查就不能直接比。 */
 export function questionsHash(questions: readonly EvalQuestion[]): string {
   const hash = createHash('sha256');
@@ -154,6 +172,13 @@ export function releaseCheckMetrics(input: {
     costLiveUsd: money(run.spend.live),
     costChecksUsd: money(run.spend.checks),
     savedUsd: money(saved),
+    // 估计下次花费用（estimate.ts）：真问了几道、平均每道多少（候选版本这一边）
+    paidQuestions: run.results.filter(paidStep).length,
+    paidQuestionUsd: (() => {
+      const paid = run.results.filter(paidStep);
+      const usd = paid.reduce((sum, r) => sum + r.candidate.got.costUsd, 0);
+      return paid.length === 0 ? 0 : Number((usd / paid.length).toFixed(6));
+    })(),
     unpricedCalls: run.unpricedCalls,
     cacheStepHits: run.cache.step.hits,
     cacheStepMisses: run.cache.step.misses,
@@ -170,9 +195,13 @@ export function releaseCheckReceipt(input: {
   model: string;
   questions: readonly EvalQuestion[];
   liveVersion: number | null;
+  /** 这次用的门槛（界面按它写原因，不在前端另写一份）。 */
+  limits: { wrongRateMax: number; sliceMin: number };
 }): Record<string, string | number> {
   return {
     model: input.model,
+    wrongRateMax: input.limits.wrongRateMax,
+    sliceMin: input.limits.sliceMin,
     questions: input.questions.length,
     questionsHash: questionsHash(input.questions),
     devSet: 'eval-v6-dev',

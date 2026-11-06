@@ -1599,7 +1599,9 @@
   vertical-align: top;
 }
 
-.hdFaqTable tbody tr:last-child td {
+/* 行标题（th scope=row）也一样，否则最后一行只在第一列留一截底线 */
+.hdFaqTable tbody tr:last-child td,
+.hdFaqTable tbody tr:last-child th {
   border-bottom: 0;
 }
 
@@ -6229,4 +6231,68 @@
     gap: 16px;
     overflow-x: auto;
   }
+}
+
+/* 真流程检查详情（release check v2）：一个模块、几个页签；内容区限高自己滚动，不加长抽屉（待视觉验收） */
+.hdReleaseEstimate {
+  color: #344964;
+}
+
+.hdCheckReport {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hd-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.hdCheckTabs {
+  padding: 0 12px;
+}
+
+.hdCheckPanel {
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.hdCheckPanel:focus-visible {
+  outline: 2px solid var(--hd-blue);
+  outline-offset: -2px;
+}
+
+.hdCheckSpend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 16px;
+}
+
+.hdCheckSpend .hdGraphHint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.hdFaqTable.hdCheckTable td,
+.hdFaqTable.hdCheckTable th {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.hdCheckTable caption {
+  margin: 0 0 4px;
+  text-align: left;
+}
+
+.hdFaqTable.hdCheckTable .hdCheckNowrap {
+  white-space: nowrap;
+}
+
+/* 版本表的表头都很短，不折行（「版本」曾被挤成两行） */
+.hdReleaseTable:not(.hdCheckTable) thead th {
+  white-space: nowrap;
+}
+
+.hdCheckPairs {
+  margin: 6px 0 0;
+  padding-left: 16px;
 }

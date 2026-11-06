@@ -36,6 +36,11 @@ export type ReleaseEvalAnswer = {
   cache?: EvalAskStats;
   /** 发出了却没有带价格回复的请求数。 */
   unpricedCalls: number;
+  /**
+   * 模型这一问看到的候选卡（节点 id，精排之后）：报告里按卡数「这张卡进过几道题的候选」，
+   * 下次检查前据此估计改一张卡要重问几道（答题器报了才有）。
+   */
+  candidates?: string[];
 };
 
 /** 绑定在一个候选版本上的答题器（快照由发布门给；这一版的向量要先算好）。 */

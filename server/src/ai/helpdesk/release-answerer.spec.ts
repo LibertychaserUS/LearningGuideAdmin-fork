@@ -103,6 +103,8 @@ describe('release answerer (live pipeline on a candidate release)', () => {
       intent: 'question',
       covered: null,
     });
+    // the cards the model saw (the release check counts them per card for the next estimate)
+    expect(got.candidates).toEqual([RESET.id]);
     expect(run).toHaveBeenCalled();
     // every question is its own user: the per-user hourly limit never cuts a sample short
     for (let i = 0; i < 35; i += 1)

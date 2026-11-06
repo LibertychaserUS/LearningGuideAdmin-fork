@@ -45,12 +45,26 @@ export type ReleaseAnswererDeps = {
   cache?: EvalCacheStore;
 };
 
-const noLog: HelpdeskSuggestionLog = {
-  record: () => Promise.resolve(),
-  setOutcome: () =>
-    Promise.resolve({ kind: 'recorded', outcome: 'helpful', changed: false }),
-  purgeQueryText: () => Promise.resolve(0),
-};
+/** 不写 helpdesk_suggestions；只记下每一问模型看到的候选卡（读完就删）。 */
+function candidateLog(): HelpdeskSuggestionLog & {
+  take(runId: string): string[] | undefined;
+} {
+  const seen = new Map<string, string[]>();
+  return {
+    record: (entry) => {
+      seen.set(entry.id, entry.candidateIds);
+      return Promise.resolve();
+    },
+    setOutcome: () =>
+      Promise.resolve({ kind: 'recorded', outcome: 'helpful', changed: false }),
+    purgeQueryText: () => Promise.resolve(0),
+    take(runId) {
+      const ids = seen.get(runId);
+      seen.delete(runId);
+      return ids;
+    },
+  };
+}
 
 const num = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -84,11 +98,12 @@ export function createReleaseAnswerer(
       // 每次检查开始时顺手删掉过期的缓存条目（读的时候本来就不用，这里只是腾地方）；失败不影响检查
       void deps.cache?.prune?.().catch(() => undefined);
       const events = createMemoryAgentEventLog();
+      const log = candidateLog();
       const service = new HelpdeskSuggestService({
         qa: deps.qaFor(version, snapshot),
         runner: cachedStepRunner(deps.runner),
         rateLimit: new MemoryRateLimitStore(),
-        log: noLog,
+        log,
         events,
         env,
         wrapReranker: cachedReranker,
@@ -139,10 +154,11 @@ export function createReleaseAnswerer(
             reply = null;
           }
           await service.flushTraces();
-          const log = await events.read(runId);
+          const trail = await events.read(runId);
           events.runs.delete(runId);
-          const replies = log.filter((e) => e.type === 'assistant/message');
-          const requests = log.filter(
+          const seen = log.take(runId);
+          const replies = trail.filter((e) => e.type === 'assistant/message');
+          const requests = trail.filter(
             (e) => e.type === 'request/context',
           ).length;
           const priced = replies.filter(
@@ -156,9 +172,10 @@ export function createReleaseAnswerer(
           const extra = {
             spend: { model: modelUsd, ...spent },
             ...(deps.cache ? { cache: stats } : {}),
+            ...(seen ? { candidates: seen } : {}),
           };
           const unpricedCalls = Math.max(0, requests - priced);
-          const reason = log.find((e) => e.type === 'turn/end')?.data.reason;
+          const reason = trail.find((e) => e.type === 'turn/end')?.data.reason;
           // 没有回复、或这一轮以出错 / 超时结束（answer 以外不出卡）：算「没答上」，不算答错
           const failed =
             reply === null ||

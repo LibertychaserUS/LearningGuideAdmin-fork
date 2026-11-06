@@ -231,6 +231,7 @@ export function judgeRelease(
       id: slice.id,
       label: slice.label,
       status,
+      rule: slice.rule,
       passed: own.length === 0,
       n: numbers.n,
       metrics: {

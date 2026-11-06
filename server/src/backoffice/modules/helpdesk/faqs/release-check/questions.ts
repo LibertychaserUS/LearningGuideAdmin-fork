@@ -214,18 +214,18 @@ export function planQuestions(input: {
 }
 
 /**
- * 追问要重问的父卡（B5，doc「改了边或父卡时，只跑受影响的边」）：父卡自己、它的任何一个子卡新增或改过
- *（字段或问法），或它下面的边加了、删了、改了。没有上线版本可比 → null（全部父卡都问）。
- * 父卡下的子卡全部排在候选最前（HelpdeskQaSearch.nodeId），所以兄弟卡的变化也会影响追问选卡。
+ * 这一版相对上线版本动过的卡（节点 id）：新增、字段改过、问法增删过，或删了（删了的卡也会让候选里有它的题变）。
+ * 发布前的估计（estimate.ts）和追问选父卡都用它。
  */
-export function followupParents(
-  previous: FaqReleaseSnapshot | null | undefined,
+export function touchedNodes(
+  previous: FaqReleaseSnapshot,
   snapshot: FaqReleaseSnapshot,
-): Set<string> | null {
-  if (!previous) return null;
+): Set<string> {
   const diff = diffSnapshots(previous, snapshot);
   const touched = new Set(
-    [...diff.nodes.added, ...diff.nodes.changed].map((node) => node.id),
+    [...diff.nodes.added, ...diff.nodes.changed, ...diff.nodes.removed].map(
+      (node) => node.id,
+    ),
   );
   const phrasingsOf = (s: FaqReleaseSnapshot) => {
     const out = new Map<string, string[]>();
@@ -240,6 +240,21 @@ export function followupParents(
     if (before.get(id) !== texts) touched.add(id);
   for (const id of before.keys())
     if (!snapshot.phrasings.some((p) => p.faqId === id)) touched.add(id);
+  return touched;
+}
+
+/**
+ * 追问要重问的父卡（B5，doc「改了边或父卡时，只跑受影响的边」）：父卡自己、它的任何一个子卡新增或改过
+ *（字段或问法），或它下面的边加了、删了、改了。没有上线版本可比 → null（全部父卡都问）。
+ * 父卡下的子卡全部排在候选最前（HelpdeskQaSearch.nodeId），所以兄弟卡的变化也会影响追问选卡。
+ */
+export function followupParents(
+  previous: FaqReleaseSnapshot | null | undefined,
+  snapshot: FaqReleaseSnapshot,
+): Set<string> | null {
+  if (!previous) return null;
+  const diff = diffSnapshots(previous, snapshot);
+  const touched = touchedNodes(previous, snapshot);
   const parents = new Set<string>();
   for (const edge of snapshot.edges)
     if (touched.has(edge.parentId) || touched.has(edge.childId))
