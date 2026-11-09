@@ -21,7 +21,7 @@ import {
  * 每次现读（不用重新部署），没设 = 缺省方案，off = 关掉：
  * - HELPDESK_RERANK_MODEL：OpenRouter /rerank 的模型（缺省 voyageai/rerank-2.5-lite）；off = 不精排。
  * - HELPDESK_RERANK_KEEP：精排后留给模型看的候选数（缺省 5）；off = 全留。
- * - HELPDESK_RERANK_DIRECT：「分数,领先差距」（缺省 0.816,0.05）：没有屏幕上的卡片、第一名是答案卡、
+ * - HELPDESK_RERANK_DIRECT：「分数,领先差距」（缺省 0.84,0.05）：没有屏幕上的卡片、第一名是答案卡、
  *   分数与领先第二名的差距都够 → 直接给卡，不调用模型（阈值只在开发集上标定）。off 或写错 = 从不直接给。
  * 精排失败或超时（RERANK_LIMITS.timeoutMs）→ 原顺序，学员不会因为它拿不到候选；不重试。
  */

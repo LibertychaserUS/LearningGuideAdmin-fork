@@ -30,7 +30,7 @@ describe('rerankConfig (read each call; the tiered defaults unless set, off with
     expect(rerankConfig({ OPENROUTER_API_KEY: KEY })).toEqual({
       model: 'voyageai/rerank-2.5-lite',
       keep: 5,
-      direct: { score: 0.816, margin: 0.05 },
+      direct: { score: 0.84, margin: 0.05 },
     });
   });
 

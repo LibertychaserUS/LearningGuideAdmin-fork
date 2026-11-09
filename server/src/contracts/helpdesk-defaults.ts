@@ -19,8 +19,11 @@ export const HELPDESK_DEFAULTS = {
   embedModel: 'baai/bge-m3',
   rerankModel: 'voyageai/rerank-2.5-lite',
   rerankKeep: 5,
-  /** 「分数,领先差距」（只在开发集上标定）。 */
-  rerankDirect: { score: 0.816, margin: 0.05 },
+  /**
+   * 「分数,领先差距」：只在开发集上用 Learn then Test 标定（2026-11-09，eval-v6 dev 1,684 轮，δ = 0.05）：
+   * 直出最多给总错卡率加 0.5%。旧值 0.816 是看开发集挑的，test 上盲测多加了 0.89%。
+   */
+  rerankDirect: { score: 0.84, margin: 0.05 },
   searchScope: 'all',
   queryContext: true,
   /**

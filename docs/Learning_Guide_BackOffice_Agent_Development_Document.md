@@ -935,7 +935,7 @@ Common Questions（BackOffice 自己判定）：400 `INVALID_INPUT`、404 `QUEST
 | 层 | 做什么 | 缺省 | 变量 |
 |---|---|---|---|
 | L1 召回 | 字词检索 ∪ 向量前 10；平铺，所有已发布答案卡都参与，边只给显示（追问 chip、选项卡）；向量与精排还按「上一句 → 这一句」再查一次，取高分 | bge-m3、平铺、带上一句 | `HELPDESK_EMBED_MODEL`、`HELPDESK_SEARCH_SCOPE`、`HELPDESK_QUERY_CONTEXT` |
-| L2 精排 | 召回池精排，留前 5 张；第一名 ≥ 0.816 且领先 ≥ 0.05 → 直接给卡，不调模型 | Voyage rerank-2.5-lite | `HELPDESK_RERANK_MODEL`、`HELPDESK_RERANK_KEEP`、`HELPDESK_RERANK_DIRECT` |
+| L2 精排 | 召回池精排，留前 5 张；第一名 ≥ 0.84 且领先 ≥ 0.05 → 直接给卡，不调模型 | Voyage rerank-2.5-lite | `HELPDESK_RERANK_MODEL`、`HELPDESK_RERANK_KEEP`、`HELPDESK_RERANK_DIRECT` |
 | L3 小模型 | 挑卡、解释、寒暄（只分类 / 抽取，参数枚举锁定；守卫不过 → 退回固定流程） | gemma-4-31b，不开思考 | `HELPDESK_SUGGEST_MODEL`、`HELPDESK_SUGGEST_THINKING` |
 
 - 所有调用经 OpenRouter，按价格选最便宜的提供方（`provider.sort = price`）；BackOffice 的「AI 按指令改卡」与缺口挖掘用同一个 L3 模型。
@@ -1353,7 +1353,7 @@ ADMIN_HELPDESK_TOKEN=
 # HELPDESK_EMBED_MODEL=baai/bge-m3
 # HELPDESK_RERANK_MODEL=voyageai/rerank-2.5-lite
 # HELPDESK_RERANK_KEEP=5
-# HELPDESK_RERANK_DIRECT=0.816,0.05
+# HELPDESK_RERANK_DIRECT=0.84,0.05
 # HELPDESK_SEARCH_SCOPE=all
 # HELPDESK_QUERY_CONTEXT=on
 # HELPDESK_MODEL_HEALTH_ALERT=0.05
