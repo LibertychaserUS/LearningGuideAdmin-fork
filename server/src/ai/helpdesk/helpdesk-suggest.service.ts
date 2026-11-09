@@ -29,7 +29,7 @@ import {
   childTraceparent,
   startTrace,
   type TraceContext,
-} from './trace/traceparent';
+} from '../../common/traceparent';
 import {
   runWorkflow,
   type AgentStepRunner,

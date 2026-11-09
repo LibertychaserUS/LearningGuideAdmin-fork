@@ -9,7 +9,7 @@ import {
 import { FAQ_CATEGORIES } from '../../contracts/helpdesk-qa';
 import { costCollector } from './flywheel/gap-labeller';
 import { RunTrace } from './trace/run-trace';
-import { childTraceparent, startTrace } from './trace/traceparent';
+import { childTraceparent, startTrace } from '../../common/traceparent';
 import type {
   AgentStepOutcome,
   AgentStepRunner,

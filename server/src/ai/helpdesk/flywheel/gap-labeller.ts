@@ -8,7 +8,7 @@ import {
 import { FAQ_CATEGORIES, isFaqCategory } from '../../../contracts/helpdesk-qa';
 import type { AgentEventLog, NewAgentEvent } from '../trace/agent-event.store';
 import { RunTrace } from '../trace/run-trace';
-import { childTraceparent, startTrace } from '../trace/traceparent';
+import { childTraceparent, startTrace } from '../../../common/traceparent';
 import type {
   AgentStepOutcome,
   AgentStepRunner,

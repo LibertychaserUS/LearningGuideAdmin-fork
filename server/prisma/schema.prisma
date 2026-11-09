@@ -482,6 +482,8 @@ model HelpdeskFaqRevision {
   action     String
   employeeId String?  @map("employee_id") @db.Uuid
   at         DateTime @default(now()) @db.Timestamptz(6)
+  /// 写入流水线的改动号（缺省取本事务的 helpdesk.change_id；不经流水线 = NULL）
+  changeId   String?  @default(dbgenerated("helpdesk_current_change_id()")) @map("change_id") @db.Uuid
 
   faq HelpdeskFaq @relation(fields: [faqId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -501,6 +503,8 @@ model HelpdeskFaqReview {
   employeeId     String?  @map("employee_id") @db.Uuid
   idempotencyKey String?  @unique(map: "helpdesk_faq_reviews_idempotency_key_key") @map("idempotency_key") @db.Uuid
   at             DateTime @default(now()) @db.Timestamptz(6)
+  /// 写入流水线的改动号（缺省取本事务的 helpdesk.change_id；不经流水线 = NULL）
+  changeId       String?  @default(dbgenerated("helpdesk_current_change_id()")) @map("change_id") @db.Uuid
 
   faq HelpdeskFaq @relation(fields: [faqId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "helpdesk_faq_reviews_faq_fkey")
 
@@ -543,6 +547,8 @@ model HelpdeskFaqEdgeRevision {
   after      Json?
   employeeId String?  @map("employee_id") @db.Uuid
   at         DateTime @default(now()) @db.Timestamptz(6)
+  /// 写入流水线的改动号（缺省取本事务的 helpdesk.change_id；不经流水线 = NULL）
+  changeId   String?  @default(dbgenerated("helpdesk_current_change_id()")) @map("change_id") @db.Uuid
 
   @@index([edgeId, at], map: "helpdesk_faq_edge_revisions_edge_idx")
   @@index([parentId, at], map: "helpdesk_faq_edge_revisions_parent_idx")
@@ -563,6 +569,8 @@ model HelpdeskFaqPhrasingRevision {
   source     String
   employeeId String?  @map("employee_id") @db.Uuid
   at         DateTime @default(now()) @db.Timestamptz(6)
+  /// 写入流水线的改动号（缺省取本事务的 helpdesk.change_id；不经流水线 = NULL）
+  changeId   String?  @default(dbgenerated("helpdesk_current_change_id()")) @map("change_id") @db.Uuid
 
   @@index([faqId, at], map: "helpdesk_faq_phrasing_revisions_faq_idx")
   @@index([at], map: "helpdesk_faq_phrasing_revisions_at_idx")
@@ -750,6 +758,8 @@ model HelpdeskFaqMapRevision {
   after      Json?
   employeeId String?  @map("employee_id") @db.Uuid
   at         DateTime @default(now()) @db.Timestamptz(6)
+  /// 写入流水线的改动号（缺省取本事务的 helpdesk.change_id；不经流水线 = NULL）
+  changeId   String?  @default(dbgenerated("helpdesk_current_change_id()")) @map("change_id") @db.Uuid
 
   @@index([entity, entityId, at], map: "helpdesk_faq_map_revisions_entity_idx")
   @@map("helpdesk_faq_map_revisions")
@@ -864,6 +874,8 @@ model HelpdeskFaqCandidateRevision {
   /// 动作当时员工的显示名
   employeeName String?  @map("employee_name")
   at           DateTime @default(now()) @db.Timestamptz(6)
+  /// 写入流水线的改动号（缺省取本事务的 helpdesk.change_id；不经流水线 = NULL）
+  changeId    String?  @default(dbgenerated("helpdesk_current_change_id()")) @map("change_id") @db.Uuid
 
   @@index([candidateId, at], map: "helpdesk_faq_candidate_revisions_candidate_idx")
   @@map("helpdesk_faq_candidate_revisions")
@@ -1367,3 +1379,38 @@ model CoursePackageJob {
   @@index([actorEmployeeId, createdAt])
 }
 
+/// 写入流水线的改动记录（迁移 20261109000000_helpdesk_faq_change_pipeline）：一次命令一行，只追加；
+/// 同时是发件箱，消费者按 seq 往后读。读写见 pipeline/faqCommandBus.ts（原生 SQL）。
+model HelpdeskFaqChange {
+  id         String   @id @db.Uuid
+  seq        BigInt   @unique(map: "helpdesk_faq_changes_seq_key") @default(autoincrement())
+  command    String
+  /// human:<employeeId> | process:<name> | <tool>/<version>
+  actor      String
+  employeeId String?  @map("employee_id") @db.Uuid
+  /// ui | import | flywheel | rewrite | seed | release | system
+  causeKind  String   @map("cause_kind")
+  causeRef   String?  @map("cause_ref")
+  note       String?
+  traceId    String?  @map("trace_id")
+  summary    Json     @default("{}")
+  at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([at], map: "helpdesk_faq_changes_at_idx")
+  @@map("helpdesk_faq_changes")
+}
+
+/// 所有写入命令共用的幂等记录：同键同请求 = 原样返回；同键不同请求 = 422
+model HelpdeskIdempotency {
+  command     String
+  key         String   @db.Uuid
+  actor       String
+  requestHash String   @map("request_hash")
+  result      Json
+  changeId    String?  @map("change_id") @db.Uuid
+  at          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([command, actor, key], map: "helpdesk_idempotency_pkey")
+  @@index([at], map: "helpdesk_idempotency_at_idx")
+  @@map("helpdesk_idempotency")
+}

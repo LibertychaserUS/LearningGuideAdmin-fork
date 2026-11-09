@@ -40,7 +40,8 @@ export type SqlDb = {
   withTransaction: <T>(fn: (client: SqlClient) => Promise<T>) => Promise<T>;
 };
 
-const defaultDb: SqlDb = {
+/** 进程共用的连接池（lib/db）。写入流水线用它开事务，仓库缺省也用它。 */
+export const pgSqlDb: SqlDb = {
   query: (sql, params) => query<Row>(sql, params),
   withTransaction: (fn) => withTransaction((client) => fn(client)),
 };
@@ -434,7 +435,7 @@ export const FAQ_CANDIDATES_SQL = candidatesSql('live');
 /** 发布版本的候选检索（多一个参数 $14 = 版本号）。 */
 export const FAQ_RELEASE_CANDIDATES_SQL = candidatesSql('release');
 
-export function createPgFaqRepository(db: SqlDb = defaultDb): FaqRepository {
+export function createPgFaqRepository(db: SqlDb = pgSqlDb): FaqRepository {
   async function currentVersion(
     client: SqlClient,
     id: string,
