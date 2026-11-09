@@ -3,9 +3,10 @@ import type {
   HelpdeskQaSource,
 } from '../../contracts/helpdesk-qa';
 import {
-  HELPDESK_DEFAULTS,
-  helpdeskSetting,
-} from '../../contracts/helpdesk-defaults';
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+  type RerankDirect,
+} from '../../contracts/helpdesk-settings';
 import {
   evalCacheKey,
   evalCacheScope,
@@ -20,9 +21,9 @@ import {
  * 缺省开（contracts/helpdesk-defaults.ts，owner 2026-11-03）；没有 OPENROUTER_API_KEY 就不精排，候选顺序不变。
  * 每次现读（不用重新部署），没设 = 缺省方案，off = 关掉：
  * - HELPDESK_RERANK_MODEL：OpenRouter /rerank 的模型（缺省 voyageai/rerank-2.5-lite）；off = 不精排。
- * - HELPDESK_RERANK_KEEP：精排后留给模型看的候选数（缺省 5）；off = 全留。
+ * - HELPDESK_RERANK_KEEP：精排后留给模型看的候选数（缺省 5）；off = 全留。写错 = 缺省并告警（helpdesk-settings.ts）。
  * - HELPDESK_RERANK_DIRECT：「分数,领先差距」（缺省 0.84,0.05）：没有屏幕上的卡片、第一名是答案卡、
- *   分数与领先第二名的差距都够 → 直接给卡，不调用模型（阈值只在开发集上标定）。off 或写错（含空的一半，如 0.8,）= 从不直接给。
+ *   分数与领先第二名的差距都够 → 直接给卡，不调用模型（阈值只在开发集上标定）。off = 从不直接给；写错（含空的一半，如 0.8,）= 缺省并告警。
  * 精排失败或超时（RERANK_LIMITS.timeoutMs）→ 原顺序，学员不会因为它拿不到候选；不重试。
  */
 export const RERANK_LIMITS = {
@@ -39,40 +40,22 @@ export const RERANK_LIMITS = {
 export type RerankConfig = {
   model: string;
   keep: number | null;
-  direct: { score: number; margin: number } | null;
+  direct: RerankDirect | null;
 };
 
-/** 精排模型：没设 = 缺省，off = null（不精排）。 */
+/** 精排模型：没设 = 缺省，off = null（不精排）；写法见 contracts/helpdesk-settings.ts。 */
 export function rerankModel(env: NodeJS.ProcessEnv): string | null {
-  return helpdeskSetting(
-    env.HELPDESK_RERANK_MODEL,
-    HELPDESK_DEFAULTS.rerankModel,
-  );
+  return readHelpdeskSetting(HELPDESK_SETTINGS.rerankModel, env);
 }
 
 export function rerankConfig(env: NodeJS.ProcessEnv): RerankConfig | null {
   const model = rerankModel(env);
   if (!model || !env.OPENROUTER_API_KEY?.trim()) return null;
-  const keepSetting = env.HELPDESK_RERANK_KEEP?.trim() ?? '';
-  const keepRaw = Number(keepSetting);
-  const keep =
-    keepSetting === ''
-      ? HELPDESK_DEFAULTS.rerankKeep
-      : Number.isInteger(keepRaw) && keepRaw > 0
-        ? keepRaw
-        : null;
-  const directSetting = env.HELPDESK_RERANK_DIRECT?.trim() ?? '';
-  const rawParts = directSetting.split(',').map((part) => part.trim());
-  const parts = rawParts.map(Number);
-  const direct =
-    directSetting === ''
-      ? { ...HELPDESK_DEFAULTS.rerankDirect }
-      : parts.length === 2 &&
-          rawParts.every((part) => part !== '') &&
-          parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 1)
-        ? { score: parts[0], margin: parts[1] }
-        : null;
-  return { model, keep, direct };
+  return {
+    model,
+    keep: readHelpdeskSetting(HELPDESK_SETTINGS.rerankKeep, env),
+    direct: readHelpdeskSetting(HELPDESK_SETTINGS.rerankDirect, env),
+  };
 }
 
 export type Reranker = (

@@ -30,30 +30,9 @@ export const HELPDESK_DEFAULTS = {
    * 一句话问了几件事时拆开、各给一张卡（HELPDESK_MULTI_ASK；multi-ask.ts）。真模型评测与 owner 点头之前缺省关。
    */
   multiAsk: false,
+  /** 模型健康报警阈值：一步里校验失败 / 后备 / 出错的比例超过它就报警（ai/helpdesk/trace/model-health.ts）。 */
+  modelHealthAlert: 0.05,
 } as const;
 
 /** 关掉某一层用的值（大小写不论）。 */
 export const HELPDESK_OFF = 'off';
-
-/**
- * 读一个「模型名」类的变量：没设或空 → 缺省；off → null（这一层关掉）；其余原样（去首尾空格）。
- */
-export function helpdeskSetting(
-  value: string | undefined,
-  fallback: string,
-): string | null {
-  const trimmed = value?.trim() ?? '';
-  if (trimmed === '') return fallback;
-  return trimmed.toLowerCase() === HELPDESK_OFF ? null : trimmed;
-}
-
-/** 读一个开关：on / off；没设或不认识 → 缺省。 */
-export function helpdeskSwitch(
-  value: string | undefined,
-  fallback: boolean,
-): boolean {
-  const v = value?.trim().toLowerCase();
-  if (v === 'on') return true;
-  if (v === HELPDESK_OFF) return false;
-  return fallback;
-}

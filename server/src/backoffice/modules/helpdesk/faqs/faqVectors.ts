@@ -3,9 +3,9 @@ import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 
 import {
-  HELPDESK_DEFAULTS,
-  helpdeskSetting,
-} from '../../../../contracts/helpdesk-defaults';
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+} from '../../../../contracts/helpdesk-settings';
 import {
   evalCacheKey,
   evalCacheScope,
@@ -36,7 +36,8 @@ import type { FaqRepository, FaqSearch, SqlDb } from './faqRepository';
  * - 节点的向量分数 = 它所有文本里和问题最像的那一条（问法多的卡不会因为多而吃亏或占便宜）。
  */
 
-export type RetrievalMode = 'lexical' | 'vector' | 'hybrid';
+export type { RetrievalMode } from '../../../../contracts/helpdesk-settings';
+import type { RetrievalMode } from '../../../../contracts/helpdesk-settings';
 
 export const FAQ_VECTOR_LIMITS = {
   /** 每次请求至多这么多条文本（OpenRouter 的 embeddings 接口一次收一个数组）。 */
@@ -77,10 +78,9 @@ const defaultDb: SqlDb = {
 
 const logger = new Logger('HelpdeskFaqVectors');
 
-/** HELPDESK_RETRIEVAL：lexical（缺省）/ vector / hybrid；别的值一律当 lexical。 */
+/** HELPDESK_RETRIEVAL：lexical（缺省）/ vector / hybrid；写错 = 缺省并告警。 */
 export function retrievalMode(env: NodeJS.ProcessEnv): RetrievalMode {
-  const value = env.HELPDESK_RETRIEVAL?.trim().toLowerCase();
-  return value === 'vector' || value === 'hybrid' ? value : 'lexical';
+  return readHelpdeskSetting(HELPDESK_SETTINGS.retrieval, env);
 }
 
 /* ---------------------------------- 文本 ---------------------------------- */
@@ -146,10 +146,7 @@ export function openRouterFaqEmbedder(
   env: NodeJS.ProcessEnv,
   fetchImpl: FetchLike = fetch,
 ): FaqEmbedder | null {
-  const model = helpdeskSetting(
-    env.HELPDESK_EMBED_MODEL,
-    HELPDESK_DEFAULTS.embedModel,
-  );
+  const model = readHelpdeskSetting(HELPDESK_SETTINGS.embedModel, env);
   const apiKey = env.OPENROUTER_API_KEY?.trim() ?? '';
   if (model === null || apiKey === '') return null;
   const baseUrl = (env.OPENROUTER_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(

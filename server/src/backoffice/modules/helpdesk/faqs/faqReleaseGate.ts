@@ -1,4 +1,8 @@
 import type { FaqRepository } from './faqRepository';
+import {
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+} from '../../../../contracts/helpdesk-settings';
 import type { FaqTextCollision } from './release-check/collisions';
 import type { FaqCheckEstimate } from './release-check/estimate';
 import type { FaqReleaseSnapshot } from './faqRelease';
@@ -363,9 +367,8 @@ export function createFaqReleaseGate(options: {
   now?: () => Date;
 }): FaqReleaseGate {
   // 组装了真流程检查（生产）→ 缺省开着，HELPDESK_RELEASE_MODEL_EVAL=off 才关；没组装 → 只有 =on 才算开（然后不通过）
-  const flag = process.env.HELPDESK_RELEASE_MODEL_EVAL;
-  const enabled =
-    options.modelEnabled ?? (options.model ? flag !== 'off' : flag === 'on');
+  const flag = readHelpdeskSetting(HELPDESK_SETTINGS.releaseModelEval);
+  const enabled = options.modelEnabled ?? flag ?? Boolean(options.model);
   const now = options.now ?? (() => new Date());
   const model = enabled ? options.model : undefined;
   return {

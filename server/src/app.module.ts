@@ -43,7 +43,10 @@ import {
   sharedFaqVectorSearch,
 } from './backoffice/modules/helpdesk/faqs/faqVectors';
 import { createPgEvalCacheStore } from './backoffice/modules/helpdesk/faqs/release-check/evalCacheStore';
-import { helpdeskSwitch } from './contracts/helpdesk-defaults';
+import {
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+} from './contracts/helpdesk-settings';
 
 /**
  * Agent 读 KS 的方式：同进程起了 ks 角色、或没配 KS_BASE_URL 时直接读库；
@@ -141,10 +144,7 @@ function appModuleMetadata(roles: readonly AppRole[]): ModuleMetadata {
                       useFactory: () =>
                         createReleaseAnswerer({
                           runner: new PiStepRunner(),
-                          ...(helpdeskSwitch(
-                            process.env.HELPDESK_EVAL_CACHE,
-                            true,
-                          )
+                          ...(readHelpdeskSetting(HELPDESK_SETTINGS.evalCache)
                             ? { cache: createPgEvalCacheStore() }
                             : {}),
                           qaFor: (version, snapshot) =>

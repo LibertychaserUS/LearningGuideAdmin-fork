@@ -7,9 +7,11 @@ import {
   type HelpdeskQaSource,
 } from '../../../../contracts/helpdesk-qa';
 import {
-  HELPDESK_DEFAULTS,
-  helpdeskSetting,
-} from '../../../../contracts/helpdesk-defaults';
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+  type LocatorMode,
+  type SearchScope,
+} from '../../../../contracts/helpdesk-settings';
 import { splitAnswerBlocks } from './faqBlocks';
 import { FAQ_LIMITS, localised, type HelpdeskFaq } from './faqContracts';
 import { createPgFaqGraphRepository } from './faqGraphRepository';
@@ -80,13 +82,15 @@ export type HelpdeskQaSourceDeps = {
   vectorTimeoutMs?: number;
 };
 
-export const LOCATOR_MODES = ['flat', 'hybrid'] as const;
-export type LocatorMode = (typeof LOCATOR_MODES)[number];
+export {
+  LOCATOR_MODES,
+  SEARCH_SCOPES,
+  type LocatorMode,
+  type SearchScope,
+} from '../../../../contracts/helpdesk-settings';
 
 export function locatorMode(env: NodeJS.ProcessEnv): LocatorMode {
-  return env.HELPDESK_LOCATOR?.trim().toLowerCase() === 'hybrid'
-    ? 'hybrid'
-    : 'flat';
+  return readHelpdeskSetting(HELPDESK_SETTINGS.locator, env);
 }
 
 /**
@@ -96,15 +100,8 @@ export function locatorMode(env: NodeJS.ProcessEnv): LocatorMode {
  *   边只留给显示（追问 chip、选项卡）。要和「追问卡的问题单独看也完整」的卡库一起开
  *   （三组终测 2026-11-02：平铺与树准确率打平，单问中位 1.1 秒 vs 1.9 秒、每次更便宜）。
  */
-export const SEARCH_SCOPES = ['tree', 'all'] as const;
-export type SearchScope = (typeof SEARCH_SCOPES)[number];
-
 export function searchScope(env: NodeJS.ProcessEnv): SearchScope {
-  const value = env.HELPDESK_SEARCH_SCOPE?.trim().toLowerCase();
-  return (
-    SEARCH_SCOPES.find((scope) => scope === value) ??
-    HELPDESK_DEFAULTS.searchScope
-  );
+  return readHelpdeskSetting(HELPDESK_SETTINGS.searchScope, env);
 }
 
 type View = {
@@ -495,10 +492,7 @@ export function createPgHelpdeskQaSource(
   if (pinned) return source;
   if (
     retrievalMode(process.env) !== 'lexical' ||
-    helpdeskSetting(
-      process.env.HELPDESK_RERANK_MODEL,
-      HELPDESK_DEFAULTS.rerankModel,
-    ) !== null
+    readHelpdeskSetting(HELPDESK_SETTINGS.rerankModel) !== null
   )
     void warmFaqVectors(
       vectors,

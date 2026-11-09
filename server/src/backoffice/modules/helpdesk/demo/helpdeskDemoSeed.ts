@@ -1,4 +1,8 @@
 import { readFileSync } from 'node:fs';
+import {
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+} from '../../../../contracts/helpdesk-settings';
 import { join } from 'node:path';
 
 import { Logger } from '@nestjs/common';
@@ -275,7 +279,7 @@ export function shouldAutoSeedDemo(env: NodeJS.ProcessEnv): boolean {
   return (
     (env.APP_ENV ?? '').trim().toUpperCase() === 'DEV' &&
     env.NODE_ENV === 'production' &&
-    (env.HELPDESK_DEMO_DATA ?? '').trim().toLowerCase() !== 'off'
+    readHelpdeskSetting(HELPDESK_SETTINGS.demoData, env)
   );
 }
 

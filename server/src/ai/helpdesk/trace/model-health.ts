@@ -1,3 +1,8 @@
+import { HELPDESK_DEFAULTS } from '../../../contracts/helpdesk-defaults';
+import {
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+} from '../../../contracts/helpdesk-settings';
 import type {
   ModelHealthReport,
   ModelStepHealth,
@@ -13,7 +18,7 @@ import type { AgentEventLog, StepHealthRow } from './agent-event.store';
  */
 export const MODEL_HEALTH = {
   /** 报警阈值：任一比例超过它（HELPDESK_MODEL_HEALTH_ALERT 可改，0 到 1 之间）。 */
-  threshold: 0.05,
+  threshold: HELPDESK_DEFAULTS.modelHealthAlert,
   /** 一步至少这么多次才判断（太少的比例没有意义）。 */
   minSample: 20,
   checkEveryMs: 15 * 60_000,
@@ -23,11 +28,7 @@ export const MODEL_HEALTH = {
 
 /** 每次现读；不合法 → 缺省。 */
 export function healthThreshold(env: NodeJS.ProcessEnv): number {
-  const raw = env.HELPDESK_MODEL_HEALTH_ALERT?.trim();
-  const value = raw ? Number(raw) : Number.NaN;
-  return Number.isFinite(value) && value > 0 && value < 1
-    ? value
-    : MODEL_HEALTH.threshold;
+  return readHelpdeskSetting(HELPDESK_SETTINGS.modelHealthAlert, env);
 }
 
 const rate = (n: number, total: number) =>

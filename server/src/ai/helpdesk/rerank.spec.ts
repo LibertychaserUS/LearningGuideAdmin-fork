@@ -44,7 +44,7 @@ describe('rerankConfig (read each call; the tiered defaults unless set, off with
     ).toBeNull();
   });
 
-  it('reads model, keep and the direct thresholds; off or bad values mean "keep all" / "never direct"', () => {
+  it('reads model, keep and the direct thresholds; off means "keep all" / "never direct", bad values mean the defaults', () => {
     expect(
       rerankConfig({
         OPENROUTER_API_KEY: KEY,
@@ -57,20 +57,31 @@ describe('rerankConfig (read each call; the tiered defaults unless set, off with
       keep: 5,
       direct: { score: 0.83, margin: 0.05 },
     });
+    expect(
+      rerankConfig({
+        OPENROUTER_API_KEY: KEY,
+        HELPDESK_RERANK_MODEL: 'cohere/rerank-v3',
+        HELPDESK_RERANK_KEEP: 'off',
+        HELPDESK_RERANK_DIRECT: 'OFF',
+      }),
+    ).toEqual({ model: 'cohere/rerank-v3', keep: null, direct: null });
     for (const [keep, direct] of [
       ['0', '1.5,0.1'],
       ['x', '0.8'],
-      ['2.5', 'off'],
-      ['off', 'OFF'],
+      ['2.5', '0.8,'],
     ])
       expect(
         rerankConfig({
           OPENROUTER_API_KEY: KEY,
-          HELPDESK_RERANK_MODEL: 'm',
+          HELPDESK_RERANK_MODEL: 'not a model id',
           HELPDESK_RERANK_KEEP: keep,
           HELPDESK_RERANK_DIRECT: direct,
         }),
-      ).toEqual({ model: 'm', keep: null, direct: null });
+      ).toEqual({
+        model: 'voyageai/rerank-2.5-lite',
+        keep: 5,
+        direct: { score: 0.84, margin: 0.05 },
+      });
   });
 });
 

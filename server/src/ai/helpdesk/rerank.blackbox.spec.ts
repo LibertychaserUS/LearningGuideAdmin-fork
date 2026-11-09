@@ -80,10 +80,13 @@ describe('rerankConfig', () => {
   ])('R4 keep %j -> %d', (v, n) => {
     expect(rerankConfig(env({ HELPDESK_RERANK_KEEP: v }))?.keep).toBe(n);
   });
-  it.each(['off', 'OFF', '0', '-2', '2.5', 'abc'])(
-    'R4 keep %j -> null (keep all)',
+  it.each(['off', 'OFF', ' Off '])('R4 keep %j -> null (keep all)', (v) => {
+    expect(rerankConfig(env({ HELPDESK_RERANK_KEEP: v }))?.keep).toBeNull();
+  });
+  it.each(['0', '-2', '2.5', 'abc', '1e1', '51'])(
+    'R4 keep %j is malformed -> the default 5 (reported, see R7)',
     (v) => {
-      expect(rerankConfig(env({ HELPDESK_RERANK_KEEP: v }))?.keep).toBeNull();
+      expect(rerankConfig(env({ HELPDESK_RERANK_KEEP: v }))?.keep).toBe(5);
     },
   );
 
@@ -102,9 +105,12 @@ describe('rerankConfig', () => {
   ])('R5 direct %j parses', (v, expected) => {
     expect(direct(v)).toEqual(expected);
   });
+  it.each(['off', 'OFF'])('R5 direct %j -> null (never direct)', (v) => {
+    const cfg = rerankConfig(env({ HELPDESK_RERANK_DIRECT: v }));
+    expect(cfg).not.toBeNull();
+    expect(cfg?.direct).toBeNull();
+  });
   it.each([
-    'off',
-    'OFF',
     '0.84',
     '0.84,0.05,1',
     '1.2,0.05',
@@ -117,11 +123,16 @@ describe('rerankConfig', () => {
     ',0.05',
     'NaN,0.05',
     'Infinity,0.05',
-  ])('R5 direct %j -> null (never direct)', (v) => {
-    const cfg = rerankConfig(env({ HELPDESK_RERANK_DIRECT: v }));
-    expect(cfg).not.toBeNull();
-    expect(cfg?.direct).toBeNull();
-  });
+    '1e-1,0.05',
+    '0x1,0.05',
+  ])(
+    'R5 direct %j is malformed -> the default 0.84/0.05 (reported, see R7)',
+    (v) => {
+      const cfg = rerankConfig(env({ HELPDESK_RERANK_DIRECT: v }));
+      expect(cfg).not.toBeNull();
+      expect(cfg?.direct).toEqual({ score: 0.84, margin: 0.05 });
+    },
+  );
 
   it('R6 default direct object is a fresh copy per call', () => {
     const a = rerankConfig(env());

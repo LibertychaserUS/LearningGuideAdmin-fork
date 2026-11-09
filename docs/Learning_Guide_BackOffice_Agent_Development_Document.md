@@ -1348,6 +1348,8 @@ PORTAL_HELPDESK_TOKEN=
 # ADMIN_HELPDESK_TOKEN 相同），每次请求现读；为空 → 503 integration_disabled
 ADMIN_HELPDESK_TOKEN=
 # Helpdesk 分级方案（§4A.17）：代码缺省就是这一套，下面都不用设；只在临时换掉某一层时设，off = 关掉那一层
+# 全部 HELPDESK_* 只在 server/src/contracts/helpdesk-settings.ts 的声明表里读（2026-11-09）：开关写 on/off、枚举与 off 不分大小写，
+# 数字只认十进制；写错 → 用缺省并在日志里告警一次（变量名、写的值、正确写法），不会因为写错把某一层关掉；评测脚本写错直接报错
 # HELPDESK_SUGGEST_MODEL=google/gemma-4-31b-it
 # HELPDESK_SUGGEST_THINKING=off
 # HELPDESK_EMBED_MODEL=baai/bge-m3

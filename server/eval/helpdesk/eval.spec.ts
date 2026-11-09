@@ -1173,7 +1173,7 @@ describe('model and budget settings', () => {
     expect(evalDeadline({ HELPDESK_EVAL_DEADLINE_MS: ' 30000 ' })).toBe(30_000);
     for (const bad of ['0', '-5', '1.5', 'abc', '600001'])
       expect(() => evalDeadline({ HELPDESK_EVAL_DEADLINE_MS: bad })).toThrow(
-        'HELPDESK_EVAL_DEADLINE_MS must be a whole number of milliseconds, 1 to 600000',
+        'HELPDESK_EVAL_DEADLINE_MS must be a whole number from 1 to 600000',
       );
     const model = chooseModel({
       OPENROUTER_API_KEY: 'k',
@@ -1200,7 +1200,7 @@ describe('model and budget settings', () => {
     expect(evalCutoff({ HELPDESK_EVAL_CUTOFF_MS: '6300' })).toBe(6_300);
     for (const bad of ['-5', '1.5', 'abc', '600001'])
       expect(() => evalCutoff({ HELPDESK_EVAL_CUTOFF_MS: bad })).toThrow(
-        'HELPDESK_EVAL_CUTOFF_MS must be a whole number of milliseconds, 0 to 600000',
+        'HELPDESK_EVAL_CUTOFF_MS must be a whole number from 0 to 600000',
       );
     const env = {
       OPENROUTER_API_KEY: 'k',
@@ -1231,7 +1231,7 @@ describe('model and budget settings', () => {
     expect(budgetFrom({ HELPDESK_EVAL_BUDGET_USD: '0.5' })).toBe(0.5);
     for (const bad of ['0', '-1', 'abc', 'Infinity'])
       expect(() => budgetFrom({ HELPDESK_EVAL_BUDGET_USD: bad })).toThrow(
-        'HELPDESK_EVAL_BUDGET_USD must be a positive number',
+        'HELPDESK_EVAL_BUDGET_USD must be a decimal number from 0 (exclusive) to 10000',
       );
   });
 });

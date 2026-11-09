@@ -13,8 +13,11 @@ import type { RunTrace } from '../trace/run-trace';
  * 新模板（订单状态卡片、只给链接、低置信度选项）= 新的一张步骤表，不动这里与 runner。
  */
 /** 思考档位（OpenRouter 的 reasoning effort；off = none）。 */
-export const THINKING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
-export type ThinkingSetting = (typeof THINKING_LEVELS)[number];
+export {
+  THINKING_LEVELS,
+  type ThinkingSetting,
+} from '../../../contracts/helpdesk-settings';
+import type { ThinkingSetting } from '../../../contracts/helpdesk-settings';
 
 export type ModelTarget = {
   provider: 'openrouter';

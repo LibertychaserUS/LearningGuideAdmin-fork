@@ -1,4 +1,8 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  HELPDESK_SETTINGS,
+  readHelpdeskSettingStrict,
+} from '../../src/contracts/helpdesk-settings';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -155,7 +159,11 @@ const FAILED_REASONS = new Set([
   'rate_limited',
   'no_key',
 ]);
-export const DEFAULT_BUDGET_USD = 5;
+/** 评测缺省封顶（声明在 contracts/helpdesk-settings.ts，这里只是取出来给报告与测试用）。 */
+export const DEFAULT_BUDGET_USD = readHelpdeskSettingStrict(
+  HELPDESK_SETTINGS.evalBudgetUsd,
+  {},
+);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -467,14 +475,10 @@ export function thinkingLabel(model: {
  * 慢的那些线上会超时，报告里按延迟另算。不给就是线上的期限。
  */
 export function evalDeadline(env: NodeJS.ProcessEnv): number | undefined {
-  const raw = env.HELPDESK_EVAL_DEADLINE_MS?.trim();
-  if (!raw) return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0 || value > 600_000)
-    throw new Error(
-      'HELPDESK_EVAL_DEADLINE_MS must be a whole number of milliseconds, 1 to 600000',
-    );
-  return value;
+  return (
+    readHelpdeskSettingStrict(HELPDESK_SETTINGS.evalDeadlineMs, env) ??
+    undefined
+  );
 }
 
 /**
@@ -482,14 +486,9 @@ export function evalDeadline(env: NodeJS.ProcessEnv): number | undefined {
  * 0 = 只跑思考那一路、不发后备（配合 HELPDESK_EVAL_DEADLINE_MS 看不截断的质量）。不给就是线上的截断。
  */
 export function evalCutoff(env: NodeJS.ProcessEnv): number | undefined {
-  const raw = env.HELPDESK_EVAL_CUTOFF_MS?.trim();
-  if (!raw) return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0 || value > 600_000)
-    throw new Error(
-      'HELPDESK_EVAL_CUTOFF_MS must be a whole number of milliseconds, 0 to 600000',
-    );
-  return value;
+  return (
+    readHelpdeskSettingStrict(HELPDESK_SETTINGS.evalCutoffMs, env) ?? undefined
+  );
 }
 
 /** 放宽期限时，模型那一步的时限也一起放宽；思考截断照给。 */
@@ -1478,12 +1477,7 @@ export function writeReport(
 }
 
 export function budgetFrom(env: NodeJS.ProcessEnv): number {
-  const raw = env.HELPDESK_EVAL_BUDGET_USD?.trim();
-  if (!raw) return DEFAULT_BUDGET_USD;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0)
-    throw new Error('HELPDESK_EVAL_BUDGET_USD must be a positive number');
-  return value;
+  return readHelpdeskSettingStrict(HELPDESK_SETTINGS.evalBudgetUsd, env);
 }
 
 export type { FaqCategory };

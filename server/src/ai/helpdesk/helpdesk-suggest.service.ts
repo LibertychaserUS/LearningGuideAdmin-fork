@@ -32,7 +32,6 @@ import {
 } from './trace/traceparent';
 import {
   runWorkflow,
-  THINKING_LEVELS,
   type AgentStepRunner,
   type ModelTarget,
   type ThinkingSetting,
@@ -59,10 +58,11 @@ import {
   rerankedSource,
   type Reranker,
 } from './rerank';
+import { HELPDESK_DEFAULTS } from '../../contracts/helpdesk-defaults';
 import {
-  HELPDESK_DEFAULTS,
-  helpdeskSwitch,
-} from '../../contracts/helpdesk-defaults';
+  HELPDESK_SETTINGS,
+  readHelpdeskSetting,
+} from '../../contracts/helpdesk-settings';
 import {
   assessModelHealth,
   healthThreshold,
@@ -142,7 +142,6 @@ export const ALTERNATIVES_TIMEOUT_MS = 300;
 export const ASSIST_RATE_LIMIT = { limit: 30, windowMs: 3_600_000 } as const;
 const PURGE_EVERY_MS = 3_600_000;
 // 分级方案的 L3 小模型（owner 2026-11-03：缺省就是最新方案，见 contracts/helpdesk-defaults.ts）；评委仍是 Claude
-const DEFAULT_MODEL = HELPDESK_DEFAULTS.model;
 // OPENROUTER_BASE_URL 是 AI Tutor 已有的变量，这里同样每次现读
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 
@@ -246,7 +245,7 @@ export type HelpdeskSuggestDeps = {
  * 不看 AI_AVAILABLE_MODELS：那是 AI Tutor 的列表，排第一的模型不一定适合推荐。
  */
 export function suggestModel(env: NodeJS.ProcessEnv): string {
-  return env.HELPDESK_SUGGEST_MODEL?.trim() || DEFAULT_MODEL;
+  return readHelpdeskSetting(HELPDESK_SETTINGS.suggestModel, env);
 }
 
 /**
@@ -254,10 +253,7 @@ export function suggestModel(env: NodeJS.ProcessEnv): string {
  * DEFAULT_CHAT_THINKING。基准对比见 eval/helpdesk。
  */
 export function suggestThinking(env: NodeJS.ProcessEnv): ThinkingSetting {
-  const value = env.HELPDESK_SUGGEST_THINKING?.trim().toLowerCase();
-  return (
-    THINKING_LEVELS.find((level) => level === value) ?? DEFAULT_CHAT_THINKING
-  );
+  return readHelpdeskSetting(HELPDESK_SETTINGS.suggestThinking, env);
 }
 
 /**
@@ -791,20 +787,16 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
       // 分级 L2 精排（HELPDESK_RERANK_MODEL，缺省开，off 关）：在共享查询之前，两路只精排一次
       const rerank = rerankConfig(env);
       // 追问卡片带上父卡片的问题（HELPDESK_CARD_CONTEXT=on，缺省关）：精排与挑卡都看「父问题 → 追问」
-      const cardContext =
-        env.HELPDESK_CARD_CONTEXT?.trim().toLowerCase() === 'on';
+      const cardContext = readHelpdeskSetting(
+        HELPDESK_SETTINGS.cardContext,
+        env,
+      );
       // 只在精排开着时有用（字词检索不看前文）；缺省开，off 关
       const queryContext =
         rerank !== null &&
-        helpdeskSwitch(
-          env.HELPDESK_QUERY_CONTEXT,
-          HELPDESK_DEFAULTS.queryContext,
-        );
+        readHelpdeskSetting(HELPDESK_SETTINGS.queryContext, env);
       // 一句话问了几件事时拆开、各给一张卡（multi-ask.ts；HELPDESK_MULTI_ASK，缺省见 HELPDESK_DEFAULTS）
-      const multiAsk = helpdeskSwitch(
-        env.HELPDESK_MULTI_ASK,
-        HELPDESK_DEFAULTS.multiAsk,
-      );
+      const multiAsk = readHelpdeskSetting(HELPDESK_SETTINGS.multiAsk, env);
       const reranker =
         rerank &&
         openRouterReranker({
@@ -1060,7 +1052,7 @@ export class HelpdeskSuggestService implements OnModuleDestroy {
               event: 'model_output_degraded',
               step: step.step,
               kind: step.kind,
-              model: env.HELPDESK_SUGGEST_MODEL?.trim() || null,
+              model: suggestModel(env),
               windowMinutes: MODEL_HEALTH.windowMinutes,
               total: step.total,
               invalidRate: step.invalidRate,
