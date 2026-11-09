@@ -277,6 +277,10 @@ export type GotTurn = {
   reason?: string | null;
   /** 复核用（agent 事件里取）：检索给模型的候选 id（按顺序）与 pick_faq 的 confidence。 */
   candidateIds?: string[];
+  /** 复核与阈值标定用：同序候选的检索分与精排分（没有精排时 rerankScore 不写）。 */
+  candidateScores?: CandidateScore[];
+  /** 精排直出的卡（rerank.ts directPick）；没有直出为 null。 */
+  direct?: string | null;
   confidence?: string | null;
   /** 开思考时回答出自哪一路（thinking 或不思考的后备 quick）；没有后备为 null。 */
   branch?: 'thinking' | 'quick' | null;
@@ -284,6 +288,13 @@ export type GotTurn = {
   said?: Partial<
     Record<'opening' | 'closing' | 'reply' | 'explanation', string>
   >;
+};
+
+/** 一个候选在这一轮的分数：score 是召回分（RRF 等），rerankScore 是精排分。 */
+export type CandidateScore = {
+  id: string;
+  score: number | null;
+  rerankScore?: number;
 };
 
 export type TurnResult = {
@@ -404,6 +415,8 @@ export function stepDetails(
   log: { type: string; data: Record<string, unknown> }[],
 ): {
   candidateIds: string[];
+  candidateScores: CandidateScore[];
+  direct: string | null;
   confidence: string | null;
   branch: 'thinking' | 'quick' | null;
 } {
@@ -415,13 +428,27 @@ export function stepDetails(
       (e.data.branch === 'quick') === (branch === 'quick'),
   );
   const retrieve = ends.find((e) => e.data.name === 'retrieve')?.data.output as
-    { candidates?: { id?: unknown }[] } | undefined;
+    | {
+        candidates?: { id?: unknown; score?: unknown; rerankScore?: unknown }[];
+        direct?: unknown;
+      }
+    | undefined;
+  const candidates = (retrieve?.candidates ?? []).filter(
+    (c): c is { id: string; score?: unknown; rerankScore?: unknown } =>
+      typeof c.id === 'string',
+  );
   const pick = ends.find((e) => e.data.name === 'pick_faq')?.data.args as
     { confidence?: unknown } | undefined;
   return {
-    candidateIds: (retrieve?.candidates ?? [])
-      .map((c) => c.id)
-      .filter((id): id is string => typeof id === 'string'),
+    candidateIds: candidates.map((c) => c.id),
+    candidateScores: candidates.map((c) => ({
+      id: c.id,
+      score: typeof c.score === 'number' ? c.score : null,
+      ...(typeof c.rerankScore === 'number'
+        ? { rerankScore: c.rerankScore }
+        : {}),
+    })),
+    direct: typeof retrieve?.direct === 'string' ? retrieve.direct : null,
     confidence: typeof pick?.confidence === 'string' ? pick.confidence : null,
     branch,
   };

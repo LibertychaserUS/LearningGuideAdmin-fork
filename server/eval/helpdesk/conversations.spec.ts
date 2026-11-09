@@ -304,28 +304,65 @@ describe('which branch answered', () => {
   const log = (branch?: string) => [
     step('retrieve', {
       branch: 'quick',
-      output: { candidates: [{ id: 'q1' }] },
+      output: { candidates: [{ id: 'q1', score: 0.5 }], direct: 'q1' },
     }),
-    step('retrieve', { output: { candidates: [{ id: 't1' }, { id: 't2' }] } }),
+    step('retrieve', {
+      output: {
+        candidates: [
+          { id: 't1', score: 0.03, rerankScore: 0.91 },
+          { id: 't2', score: 0.02, rerankScore: 0.4 },
+        ],
+      },
+    }),
     step('pick_faq', { branch: 'quick', args: { confidence: 'sure' } }),
     step('pick_faq', { args: { confidence: 'unsure' } }),
     { type: 'turn/end', data: branch ? { branch } : {} },
   ];
 
+  const thinking = [
+    { id: 't1', score: 0.03, rerankScore: 0.91 },
+    { id: 't2', score: 0.02, rerankScore: 0.4 },
+  ];
+
   it.each([
-    ['thinking', ['t1', 't2'], 'unsure'],
-    ['quick', ['q1'], 'sure'],
-  ])('reads the steps of the %s branch', (branch, candidateIds, confidence) => {
-    expect(stepDetails(log(branch))).toEqual({
-      candidateIds,
-      confidence,
-      branch,
+    ['thinking', thinking, null, 'unsure'],
+    ['quick', [{ id: 'q1', score: 0.5 }], 'q1', 'sure'],
+  ])(
+    'reads the steps of the %s branch',
+    (branch, candidateScores, direct, confidence) => {
+      expect(stepDetails(log(branch))).toEqual({
+        candidateIds: candidateScores.map((c) => c.id),
+        candidateScores,
+        direct,
+        confidence,
+        branch,
+      });
+    },
+  );
+
+  it('keeps a missing score as null and drops ids that are not strings', () => {
+    expect(
+      stepDetails([
+        {
+          type: 'step/end',
+          data: {
+            name: 'retrieve',
+            output: { candidates: [{ id: 'a' }, { id: 7, score: 1 }] },
+          },
+        },
+      ]),
+    ).toMatchObject({
+      candidateIds: ['a'],
+      candidateScores: [{ id: 'a', score: null }],
+      direct: null,
     });
   });
 
   it('reads the only branch when there is no backup', () => {
     expect(stepDetails(log().slice(1))).toEqual({
       candidateIds: ['t1', 't2'],
+      candidateScores: thinking,
+      direct: null,
       confidence: 'unsure',
       branch: null,
     });
