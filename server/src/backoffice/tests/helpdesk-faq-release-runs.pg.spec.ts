@@ -69,6 +69,19 @@ function controlledGate() {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+/**
+ * Waits until a background write has landed (polls, at most 10 s). A fixed 50 ms pause was too short on
+ * slow CI runners: the check finished but the release row was still being written.
+ */
+async function eventually(
+  ready: () => Promise<boolean> | boolean,
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!(await ready())) {
+    if (Date.now() > deadline) return;
+    await settle();
+  }
+}
 
 describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
   const schema = `hdreleaseruns_${process.pid}_${Date.now()}`;
@@ -164,7 +177,7 @@ describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
       publishable: false,
       evaluation: { state: 'running', progress: null },
     });
-    await settle();
+    await eventually(() => pending.length === 1);
     expect(pending).toHaveLength(1);
     const progress: FaqReleaseEvalProgress = {
       stage: 'model',
@@ -182,7 +195,9 @@ describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
       code: 'FAQ_RELEASE_EVALUATING',
     });
     pending[0].finish(true);
-    await settle();
+    await eventually(
+      async () => (await service.get(release.version)).status === 'draft',
+    );
     const done = await service.get(release.version);
     expect(done).toMatchObject({
       status: 'draft',
@@ -209,7 +224,7 @@ describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
     // a fresh check of the draft from the previous test
     const started = await service.check(latest.version);
     expect(started.evaluation?.state).toBe('running');
-    await settle();
+    await eventually(() => pending.length === 1);
     expect(pending).toHaveLength(1);
     clock += EVAL_STALE_MS + 1_000;
     expect((await service.get(latest.version)).evaluation?.state).toBe(
@@ -221,7 +236,7 @@ describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
       evaluation: { state: 'running' },
     });
     expect(again.evalRun?.id).not.toBe(started.evalRun?.id);
-    await settle();
+    await eventually(() => pending.length === 2);
     expect(pending).toHaveLength(2);
     // the old run wakes up: its progress is refused and its result is dropped
     await expect(
@@ -232,7 +247,9 @@ describeDb('FAQ release checks run in the background (PostgreSQL)', () => {
     await settle();
     expect((await service.get(latest.version)).status).toBe('evaluating');
     pending[1].finish(true);
-    await settle();
+    await eventually(
+      async () => (await service.get(latest.version)).status === 'draft',
+    );
     expect((await service.get(latest.version)).status).toBe('draft');
   });
 
