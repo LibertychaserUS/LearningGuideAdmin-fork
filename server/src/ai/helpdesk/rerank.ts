@@ -22,7 +22,7 @@ import {
  * - HELPDESK_RERANK_MODEL：OpenRouter /rerank 的模型（缺省 voyageai/rerank-2.5-lite）；off = 不精排。
  * - HELPDESK_RERANK_KEEP：精排后留给模型看的候选数（缺省 5）；off = 全留。
  * - HELPDESK_RERANK_DIRECT：「分数,领先差距」（缺省 0.84,0.05）：没有屏幕上的卡片、第一名是答案卡、
- *   分数与领先第二名的差距都够 → 直接给卡，不调用模型（阈值只在开发集上标定）。off 或写错 = 从不直接给。
+ *   分数与领先第二名的差距都够 → 直接给卡，不调用模型（阈值只在开发集上标定）。off 或写错（含空的一半，如 0.8,）= 从不直接给。
  * 精排失败或超时（RERANK_LIMITS.timeoutMs）→ 原顺序，学员不会因为它拿不到候选；不重试。
  */
 export const RERANK_LIMITS = {
@@ -62,11 +62,13 @@ export function rerankConfig(env: NodeJS.ProcessEnv): RerankConfig | null {
         ? keepRaw
         : null;
   const directSetting = env.HELPDESK_RERANK_DIRECT?.trim() ?? '';
-  const parts = directSetting.split(',').map((part) => Number(part.trim()));
+  const rawParts = directSetting.split(',').map((part) => part.trim());
+  const parts = rawParts.map(Number);
   const direct =
     directSetting === ''
       ? { ...HELPDESK_DEFAULTS.rerankDirect }
       : parts.length === 2 &&
+          rawParts.every((part) => part !== '') &&
           parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 1)
         ? { score: parts[0], margin: parts[1] }
         : null;
@@ -272,6 +274,9 @@ export function rerankedSource(
  * 精排有把握时直接给第一名（不调用大模型）：第一名有 rerankScore、是答案卡（不是 choice），
  * 分数 ≥ direct.score，且比第二名高出 ≥ direct.margin（只有一张时差距按它自己的分数算）。
  */
+/** 浮点减法的误差容忍（分数都在 0–1，远小于有意义的分数差）。 */
+const DIRECT_EPSILON = 1e-9;
+
 export function directPick(
   candidates: HelpdeskQaCandidate[],
   direct: RerankConfig['direct'],
@@ -281,7 +286,9 @@ export function directPick(
   if (!top || top.rerankScore === undefined) return null;
   if ((top.type ?? 'answer') !== 'answer') return null;
   const margin = top.rerankScore - (second?.rerankScore ?? 0);
-  return top.rerankScore >= direct.score && margin >= direct.margin
+  // 两个界都含等号，按人读小数的意思比：0.84 − 0.79 在浮点里是 0.04999…，要算够 0.05（黑盒测试 D5）
+  return top.rerankScore >= direct.score - DIRECT_EPSILON &&
+    margin >= direct.margin - DIRECT_EPSILON
     ? top
     : null;
 }

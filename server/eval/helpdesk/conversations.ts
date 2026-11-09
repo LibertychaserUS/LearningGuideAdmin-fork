@@ -435,7 +435,7 @@ export function stepDetails(
     | undefined;
   const candidates = (retrieve?.candidates ?? []).filter(
     (c): c is { id: string; score?: unknown; rerankScore?: unknown } =>
-      typeof c.id === 'string',
+      typeof c?.id === 'string',
   );
   const pick = ends.find((e) => e.data.name === 'pick_faq')?.data.args as
     { confidence?: unknown } | undefined;
