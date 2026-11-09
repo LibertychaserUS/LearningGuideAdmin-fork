@@ -241,8 +241,16 @@ export function createFaqCommandBus(options: FaqCommandBusOptions) {
           : meta.actor.employeeId;
       if (employeeId !== null && !isUuid(employeeId))
         throw invalid('actor employeeId must be a UUID');
+      // UUID 不分大小写（RFC 9562）：human:<id> 里的 id 同样按小写记、按小写比
+      const given = meta.actor.label;
       const label =
-        meta.actor.label ?? (employeeId ? `human:${employeeId}` : null);
+        given === undefined
+          ? employeeId
+            ? `human:${employeeId}`
+            : null
+          : given.startsWith('human:')
+            ? given.toLowerCase()
+            : given;
       if (!label || !ACTOR_LABEL.test(label))
         throw invalid(
           'actor must be human:<employee id>, process:<name> or <tool>/<version>',

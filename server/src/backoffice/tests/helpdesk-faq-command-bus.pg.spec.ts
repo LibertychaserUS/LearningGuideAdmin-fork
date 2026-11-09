@@ -403,22 +403,39 @@ describeDb('FAQ command bus (PostgreSQL)', () => {
     listener.on('notification', (msg) => heard.push(String(msg.payload)));
     await listener.query(`LISTEN ${FAQ_CHANGE_CHANNEL}`);
     try {
-      const ok = addPhrasing('notify on commit');
+      // 通知是整库的：别的测试文件同时在写，这里只看这两个命令自己的改动号
+      let badId = '';
       const bad: FaqCommand<null, null> = {
         name: 'test.bad',
         lock: 'shared',
         parse: () => null,
-        run: () => Promise.reject(new HelpdeskError(500, 'TEST', 'no')),
+        run: async (_input, ctx) => {
+          badId = ctx.changeId;
+          await createFaqGraphService({
+            graph: createPgFaqGraphRepository(ctx.db),
+          }).addPhrasing(staff, cards[2].id, {
+            locale: 'en-GB',
+            text: 'rolled back before notify',
+          });
+          throw new HelpdeskError(500, 'TEST', 'no');
+        },
       };
-      const { changeId } = await bus().execute(ok, null, asStaff);
-      if (!changeId) throw new Error('expected a change');
       await bus()
         .execute(bad, null, asStaff)
         .catch(() => undefined);
+      // 先回滚的那个若发了通知，会排在后提交的这个前面
+      const { changeId } = await bus().execute(
+        addPhrasing('notify on commit'),
+        null,
+        asStaff,
+      );
+      if (!changeId || !badId) throw new Error('expected both change ids');
       const deadline = Date.now() + 2_000;
       while (!heard.includes(changeId) && Date.now() < deadline)
         await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(heard).toEqual([changeId]);
+      expect(heard.filter((id) => id === changeId || id === badId)).toEqual([
+        changeId,
+      ]);
     } finally {
       await listener.end();
     }
@@ -446,6 +463,23 @@ describeDb('FAQ command bus (PostgreSQL)', () => {
         cause: { kind: 'seed' },
       }),
     ).rejects.toMatchObject({ status: 400 });
+    // UUID 不分大小写：大写写的 human 标签和小写的员工 id 是同一个人，按小写记
+    const human = await bus().execute(
+      addPhrasing('upper-case human label'),
+      null,
+      {
+        actor: {
+          employeeId: EMPLOYEE,
+          label: `human:${EMPLOYEE.toUpperCase()}`,
+        },
+        cause: { kind: 'ui' },
+      },
+    );
+    const [byHuman] = await db.query(
+      'SELECT actor FROM helpdesk_faq_changes WHERE id = $1',
+      [human.changeId],
+    );
+    expect(byHuman).toEqual({ actor: `human:${EMPLOYEE}` });
     const { changeId } = await bus().execute(
       addPhrasing('written by a tool'),
       null,
