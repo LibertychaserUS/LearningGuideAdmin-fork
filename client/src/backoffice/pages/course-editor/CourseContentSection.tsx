@@ -12,6 +12,7 @@ import { Chip, Field, Modal, TimeInput } from './shared';
 import { L, buttonStyle, card, dangerBtn, exhibitTypeLabel, inputStyle, labelStyle, languageLabel, localizeMissing, fmtDuration, fmtDate, primaryBtn, readingTypeLabel } from './shared-utils';
 import type { Locale } from '../../lib/i18n/config';
 import { serverText } from '../../lib/i18n/serverText';
+import { pickLocalized } from '../../lib/i18n/localized';
 
 type UploadResult = { id: string; kind?: string; originalName?: string };
 
@@ -643,7 +644,7 @@ export function CourseContentSection({
                 )}
                 <div style={{ marginTop: 10 }}>
                   {exhibits.map((exhibit) => {
-                    const title = exhibit.localized?.[contentLanguage]?.title ?? exhibit.localized?.['en-GB']?.title ?? exhibit.code;
+                    const title = pickLocalized(exhibit.localized, 'title', contentLanguage, exhibit.code);
                     const complete = Boolean(exhibit.media && exhibit.thumbnail && (exhibit.localized?.[contentLanguage]?.title || exhibit.localized?.['en-GB']?.title) && (exhibit.localized?.[contentLanguage]?.description || exhibit.localized?.['en-GB']?.description));
                     return (
                       <div key={exhibit.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', border: `1px solid ${complete ? '#E8EDF5' : '#F5C7A8'}`, borderRadius: 10, padding: 10, marginTop: 8, background: complete ? '#fff' : '#FFF8F2' }}>
@@ -858,7 +859,7 @@ export function CourseContentSection({
                         <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 40px', gap: 8, marginTop: 8, alignItems: 'center' }}>
                           <select value={trigger.exhibitId} onChange={(event) => setTriggerRows((rows) => rows.map((item, i) => i === index ? { ...item, exhibitId: event.target.value } : item))} style={inputStyle}>
                             <option value="">{L(locale, '选择展品', 'Choose an exhibit')}</option>
-                            {exhibits.map((exhibit) => <option key={exhibit.id} value={exhibit.id}>{exhibit.localized?.[contentLanguage]?.title ?? exhibit.code}</option>)}
+                            {exhibits.map((exhibit) => <option key={exhibit.id} value={exhibit.id}>{pickLocalized(exhibit.localized, 'title', contentLanguage, exhibit.code)}</option>)}
                           </select>
                           <TimeInput seconds={trigger.timeSeconds} onChange={(seconds) => setTriggerRows((rows) => rows.map((item, i) => i === index ? { ...item, timeSeconds: seconds ?? 0 } : item))} placeholder="mm:ss" style={inputStyle} />
                           <button type="button" style={{ ...dangerBtn, padding: '6px 8px' }} onClick={() => setTriggerRows((rows) => rows.filter((_, i) => i !== index))}>×</button>

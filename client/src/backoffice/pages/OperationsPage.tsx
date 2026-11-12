@@ -10,7 +10,7 @@ import type {
   PopularCourses,
 } from '../contracts/course';
 import { boRequest } from '../lib/api';
-import { categoryLabel } from '../lib/categoryLabel';
+import { localizedName } from '../lib/i18n/localized';
 import { useResizableColumns } from '../components/resizableColumns';
 import { liveStatusLabel } from './course-editor/shared-utils';
 import { formatDateTime } from '../lib/i18n/format';
@@ -85,7 +85,7 @@ export function OperationsPage() {
         sortOrder: popular.items.length,
         code: course.code,
         title: course.title,
-        category: course.category?.name ?? null,
+        category: course.category ?? null,
         liveStatus: course.liveStatus,
         trialEnabled: course.trialEnabled,
         coverUrl: `/api/backoffice/courses/${course.id}/cover`,
@@ -220,7 +220,7 @@ export function OperationsPage() {
                       </div>
                     </div>
                   </td>
-                  <td>{item.category ? categoryLabel(locale, item.category) : '—'}</td>
+                  <td>{item.category ? localizedName(locale, item.category) : '—'}</td>
                   <td style={{ color: item.invalid ? '#b42318' : '#1E7A3C', fontWeight: 600 }}>
                     {liveStatusLabel(locale, item.liveStatus)}{item.invalid ? ` · ${L(locale, '需替换', 'replace')}` : ''}
                   </td>

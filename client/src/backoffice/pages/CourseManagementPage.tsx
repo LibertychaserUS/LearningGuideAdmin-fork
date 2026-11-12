@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useEmployee } from '../employeeSession';
-import type { CourseList } from '../contracts/course'
+import type { CourseCategory, CourseList } from '../contracts/course'
 import { useResizableColumns } from '../components/resizableColumns'
 import { Pagination } from '../components/Pagination';
 import { usePageSize } from '../components/paginationState';
 import { boRequest } from '../lib/api'
-import { categoryLabel } from '../lib/categoryLabel'
+import { localizedName } from '../lib/i18n/localized'
 import { uploadFileWithProgress } from '../lib/upload'
 import { t } from '../lib/i18n/messages'
 import type { Locale } from '../lib/i18n/config'
@@ -92,7 +92,7 @@ function CourseManagementInner({ locale }: { locale: ReturnType<typeof useLocale
   const [packageFile, setPackageFile] = useState<File | null>(null)
   const [uploadPct, setUploadPct] = useState<number | null>(null)
   const [categoryId, setCategoryId] = useState('')
-  const [catalogCategories, setCatalogCategories] = useState<Array<{ id: string; name: string }>>([])
+  const [catalogCategories, setCatalogCategories] = useState<CourseCategory[]>([])
   const [createCategoryId, setCreateCategoryId] = useState('')
   const [createMode, setCreateMode] = useState('VIDEO_AND_TEXT')
   const [createLanguages, setCreateLanguages] = useState<string[]>([locale.startsWith('zh') ? 'zh-CN' : 'en-GB'])
@@ -143,17 +143,17 @@ function CourseManagementInner({ locale }: { locale: ReturnType<typeof useLocale
 
   useEffect(() => {
     void (async () => {
-      const result = await boRequest<Array<{ id: string; name: string }>>(`/api/backoffice/courses/categories`)
+      const result = await boRequest<CourseCategory[]>(`/api/backoffice/courses/categories`)
       if (result.success) setCatalogCategories(result.data)
     })()
   }, [])
 
   const categories = useMemo(() => {
     const map = new Map<string, string>()
-    for (const category of catalogCategories) map.set(category.id, categoryLabel(locale, category.name))
+    for (const category of catalogCategories) map.set(category.id, localizedName(locale, category))
     // 当前页出现的分类即使目录接口没返回（如已停用）也保留，避免已选筛选值丢失
     for (const course of list?.courses ?? []) {
-      if (course.category) map.set(course.category.id, categoryLabel(locale, course.category.name))
+      if (course.category) map.set(course.category.id, localizedName(locale, course.category))
     }
     return [...map.entries()]
   }, [catalogCategories, list, locale])
@@ -544,7 +544,7 @@ function CourseManagementInner({ locale }: { locale: ReturnType<typeof useLocale
               <label style={{ fontSize: 13, fontWeight: 600 }}>{L('课程 ID（留空自动生成）', 'Course ID (auto if blank)')}<input name="code" pattern="[A-Za-z0-9_-]+" title={L('仅限字母、数字、下划线和连字符', 'Letters, numbers, underscores and hyphens only')} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #D5DCE8' }} /></label>
               <label style={{ fontSize: 13, fontWeight: 600 }}>{L('短名', 'Slug')}<input name="slug" style={{ display: 'block', width: '100%', marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #D5DCE8' }} /></label>
               <label style={{ fontSize: 13, fontWeight: 600 }}>{L('学习模式', 'Learning mode')}<select value={createMode} onChange={(e) => setCreateMode(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #D5DCE8' }}><option value="VIDEO_ONLY">{L('仅视频', 'Video only')}</option><option value="TEXT_ONLY">{L('仅文字', 'Text only')}</option><option value="VIDEO_AND_TEXT">{L('视频和文字', 'Video and text')}</option></select></label>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>{L('分类', 'Category')} *<select required value={createCategoryId} onChange={(e) => setCreateCategoryId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #D5DCE8' }}><option value="">{L('请选择分类', 'Select a category')}</option>{catalogCategories.map((cat) => <option key={cat.id} value={cat.id}>{categoryLabel(locale, cat.name)}</option>)}</select></label>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>{L('分类', 'Category')} *<select required value={createCategoryId} onChange={(e) => setCreateCategoryId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #D5DCE8' }}><option value="">{L('请选择分类', 'Select a category')}</option>{catalogCategories.map((cat) => <option key={cat.id} value={cat.id}>{localizedName(locale, cat)}</option>)}</select></label>
             </div>
             <fieldset style={{ border: '1px solid #D5DCE8', borderRadius: 8, padding: 12, marginTop: 14 }}>
               <legend style={{ fontSize: 13, fontWeight: 600, padding: '0 4px' }}>{L('学习语言', 'Learning languages')} *</legend>
@@ -707,7 +707,7 @@ function CourseManagementInner({ locale }: { locale: ReturnType<typeof useLocale
                     </div>
                   </td>
                   <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{course.code}</td>
-                  <td>{course.category ? categoryLabel(locale, course.category.name) : '—'}</td>
+                  <td>{course.category ? localizedName(locale, course.category) : '—'}</td>
                   <td>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <span style={{ fontWeight: 600 }}>{course.liveVersionLabel ?? '—'}</span>

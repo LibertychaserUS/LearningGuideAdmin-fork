@@ -7,6 +7,8 @@ import {
   type VersionSnapshot,
 } from './version-snapshot';
 import { TrialService } from './trial.service';
+import { categoryRef, EXHIBIT_FIELDS } from './localized-fields';
+import { parseLocalized, pickLocalized } from '../common/i18n/localized';
 
 /**
  * 学员视角预览（PRD §10 / §15，对齐 Portal modeling-life 详情页字段）。
@@ -186,20 +188,21 @@ export class PreviewService {
         const lessonComplete = completenessByLesson.get(lesson.id);
         const trialRow = trialByLesson.get(lesson.id);
         const exhibits = lesson.exhibits.map((exhibit) => {
-          const localized =
-            (exhibit.localized as Record<
-              string,
-              { title?: string; description?: string }
-            > | null) ?? {};
-          const localizedEntry =
-            localized[defaultLanguage] ?? Object.values(localized)[0] ?? {};
+          const localized = parseLocalized(exhibit.localized, EXHIBIT_FIELDS);
           return {
             code: exhibit.code,
             type: exhibit.type,
             mediaAssetId: exhibit.mediaAssetId,
             thumbnailAssetId: exhibit.thumbnailAssetId,
-            title: localizedEntry.title ?? exhibit.code,
-            description: localizedEntry.description ?? null,
+            title: pickLocalized(
+              localized,
+              'title',
+              defaultLanguage,
+              exhibit.code,
+            ),
+            description:
+              pickLocalized(localized, 'description', defaultLanguage, '') ||
+              null,
             triggers: lesson.triggers
               .filter((trigger) => trigger.exhibitCode === exhibit.code)
               .map((trigger) => ({
@@ -271,7 +274,7 @@ export class PreviewService {
       code: content.code,
       slug: content.slug,
       versionLabel,
-      category: course.category?.name ?? null,
+      category: categoryRef(course.category),
       learningMode: content.learningMode,
       learningLanguages: content.learningLanguages,
       defaultContentLanguage: defaultLanguage,

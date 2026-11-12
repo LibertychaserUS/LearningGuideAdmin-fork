@@ -19,6 +19,8 @@ import {
   type ValidatedMedia,
 } from './media-validate';
 import { CourseStorageService } from './storage.service';
+import { categoryRef, EXHIBIT_FIELDS } from './localized-fields';
+import { parseLocalized } from '../common/i18n/localized';
 
 const READING_TYPES = new Set(['BOOK', 'ARTICLE', 'PAPER', 'OTHER']);
 const EXHIBIT_TYPES = new Set(['IMAGE', 'VIDEO', 'MODEL3D']);
@@ -148,11 +150,12 @@ export class CourseAuthoringService {
   ) {}
 
   async listCategories() {
-    return this.prisma.courseCatalogueEntry.findMany({
+    const rows = await this.prisma.courseCatalogueEntry.findMany({
       where: { parentId: null, status: 'ACTIVE' },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true },
+      select: { id: true, name: true, localized: true },
     });
+    return rows.map((row) => categoryRef(row));
   }
 
   async uploadMedia(
@@ -455,7 +458,7 @@ export class CourseAuthoringService {
         mediaAssetId: body.mediaAssetId ?? null,
         thumbnailAssetId: body.thumbnailAssetId ?? null,
         sourceText: body.sourceText ?? null,
-        localized: body.localized ?? {},
+        localized: parseLocalized(body.localized, EXHIBIT_FIELDS),
       },
     });
     await this.touchCourse(courseId);
@@ -507,7 +510,7 @@ export class CourseAuthoringService {
           ? { sourceText: body.sourceText }
           : {}),
         ...(body.localized !== undefined
-          ? { localized: body.localized as Prisma.InputJsonValue }
+          ? { localized: parseLocalized(body.localized, EXHIBIT_FIELDS) }
           : {}),
       },
     });

@@ -55,6 +55,18 @@ describe('Commerce course workflow (e2e)', () => {
     await app.close();
   });
 
+  it('lists each category with its name in every language from the database', async () => {
+    const agent = await signInAs(app, 'ADMIN');
+    const listed: SuccessResponse<
+      Array<{ name: string; localized: Record<string, { name?: string }> }>
+    > = await agent.get('/api/backoffice/courses/categories').expect(200);
+    const society = listed.body.data.find((c) => c.name === 'Society');
+    expect(society?.localized).toEqual({
+      'en-GB': { name: 'Society' },
+      'zh-CN': { name: '社会' },
+    });
+  });
+
   it('publishes once when Publish is pressed twice at the same time', async () => {
     const agent = await signInAs(app, 'ADMIN');
     const created: SuccessResponse<{ id: string }> = await agent

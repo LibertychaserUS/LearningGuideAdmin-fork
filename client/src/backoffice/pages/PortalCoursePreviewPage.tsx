@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import type { PortalPreviewDetail } from '../contracts/course'
 import { boRequest } from '../lib/api'
-import { categoryLabel } from '../lib/categoryLabel'
+import { localizedName } from '../lib/i18n/localized'
 import { L } from './course-editor/shared-utils';
 
 /**
@@ -195,7 +195,7 @@ export function PortalCoursePreviewPage() {
       <nav style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '16px 32px', background: '#fff', borderBottom: '1px solid #E5E7EB', fontSize: 14, color: '#7C7C7C' }}>
         <Link to={`/${locale}/course`} style={{ color: 'inherit' }}>{L(locale, '课程列表', 'Courses')}</Link>
         <span>›</span>
-        {detail.category && <><span>{categoryLabel(locale, detail.category)}</span><span>›</span></>}
+        {detail.category && <><span>{localizedName(locale, { name: detail.category, localized: detail.categoryLocalized })}</span><span>›</span></>}
         <span style={{ color: '#0A0A0A' }}>{detail.title}</span>
       </nav>
 
@@ -208,7 +208,7 @@ export function PortalCoursePreviewPage() {
         )}
         <div style={{ position: 'relative', width: 'min(1200px, calc(100% - 64px))', margin: '0 auto', padding: '56px 0' }}>
           {detail.category && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', minHeight: 30, padding: '4px 12px', background: '#246BFD', borderRadius: 6, fontSize: 14 }}>{categoryLabel(locale, detail.category)}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', minHeight: 30, padding: '4px 12px', background: '#246BFD', borderRadius: 6, fontSize: 14 }}>{localizedName(locale, { name: detail.category, localized: detail.categoryLocalized })}</span>
           )}
           <h1 style={{ margin: '26px 0 20px', fontSize: 46, fontWeight: 600, lineHeight: 1.2 }}>{detail.title}</h1>
           <p style={{ maxWidth: 811, margin: 0, fontSize: 16, lineHeight: 1.4, color: 'rgba(255,255,255,0.72)' }}>{detail.shortDescription ?? ''}</p>

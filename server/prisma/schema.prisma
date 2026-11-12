@@ -1257,7 +1257,11 @@ model CourseMediaAsset {
 
 model CourseCatalogueEntry {
   id          String                 @id @default(uuid())
+  /// 稳定键（导入按它匹配，不随界面语言变化）。
   name        String
+  /// 各语言显示名（通用多语言模板，见 server/src/common/i18n/localized.ts）：
+  /// {"en-GB":{"name":"Society"},"zh-CN":{"name":"社会"}}；某语言没有时按模板规则回退。
+  localized   Json                   @default("{}")
   description String                 @default("")
   parentId    String?
   parent      CourseCatalogueEntry?  @relation("CatalogueParent", fields: [parentId], references: [id])

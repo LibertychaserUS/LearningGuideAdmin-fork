@@ -13,6 +13,7 @@ import { detailToCompletenessInput } from './version-snapshot';
 import { HISTORY_ACTIONS, PublishingService } from './publishing.service';
 import { syncTextLearningPoints } from './course-authoring.service';
 import { draftContentHash, versionContentHash } from './content-hash';
+import { categoryRef } from './localized-fields';
 
 const CLEARED_DRAFT = {
   hasDraft: false,
@@ -232,6 +233,7 @@ export class CommerceCoursesService {
         : null;
     return {
       ...course,
+      category: categoryRef(course.category),
       ...draftState,
       completeness: computeCompleteness(detailToCompletenessInput(course)),
     };
@@ -741,7 +743,7 @@ export class CommerceCoursesService {
     hasDraft: boolean;
     trialEnabled: boolean;
     updatedAt: Date;
-    category: { id: string; name: string } | null;
+    category: { id: string; name: string; localized: unknown } | null;
     localizations: {
       language: string;
       title: string;
@@ -766,9 +768,7 @@ export class CommerceCoursesService {
       slug: row.slug,
       title,
       subtitle: localized?.shortDescription ?? null,
-      category: row.category
-        ? { id: row.category.id, name: row.category.name }
-        : null,
+      category: categoryRef(row.category),
       learningMode: row.learningMode,
       learningLanguages: row.learningLanguages,
       lessonCount: row._count.lessons,

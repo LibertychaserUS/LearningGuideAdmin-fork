@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Exhibit } from '../../contracts/course';
 import { Modal } from './shared';
 import { L, buttonStyle, exhibitTypeLabel, inputStyle } from './shared-utils';
+import { pickLocalized } from '../../lib/i18n/localized';
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => {
@@ -57,8 +58,8 @@ export function TextEditor({
   }
 
   function insertExhibit(exhibit: Exhibit) {
-    const title = exhibit.localized?.[language]?.title ?? exhibit.localized?.['en-GB']?.title ?? exhibit.code;
-    const description = exhibit.localized?.[language]?.description ?? exhibit.localized?.['en-GB']?.description ?? '';
+    const title = pickLocalized(exhibit.localized, 'title', language, exhibit.code);
+    const description = pickLocalized(exhibit.localized, 'description', language, '');
     const html = `<figure data-exhibit-code="${escapeHtml(exhibit.code)}" data-exhibit-id="${exhibit.id}" class="course-exhibit-card" contenteditable="false" style="border:1px solid #E8EDF5;border-radius:10px;padding:12px;margin:14px 0;display:flex;gap:12px;align-items:center;background:#F9FBFE"><div style="flex:1"><strong>${escapeHtml(title)}</strong><div style="font-size:12px;color:#5A6577;margin-top:4px">${escapeHtml(exhibit.type)} · ${escapeHtml(exhibit.code)}</div><div style="font-size:13px;margin-top:6px">${escapeHtml(description)}</div></div><span style="font-size:12px;color:#2B58C8">${escapeHtml(L(locale, '展品', 'Exhibit'))}</span></figure><p><br/></p>`;
     setPickerOpen(false);
     setTimeout(() => {
@@ -85,7 +86,7 @@ export function TextEditor({
   }
 
   const filtered = exhibits.filter((exhibit) => {
-    const title = exhibit.localized?.[language]?.title ?? exhibit.localized?.['en-GB']?.title ?? exhibit.code;
+    const title = pickLocalized(exhibit.localized, 'title', language, exhibit.code);
     return title.toLowerCase().includes(search.toLowerCase());
   });
 
@@ -126,7 +127,7 @@ export function TextEditor({
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={L(locale, '搜索本课时的展品', "Search this lesson's exhibits")} style={inputStyle} />
           <div style={{ marginTop: 10, maxHeight: 360, overflow: 'auto' }}>
             {filtered.map((exhibit) => {
-              const title = exhibit.localized?.[language]?.title ?? exhibit.localized?.['en-GB']?.title ?? exhibit.code;
+              const title = pickLocalized(exhibit.localized, 'title', language, exhibit.code);
               return (
                 <button key={exhibit.id} type="button" onClick={() => insertExhibit(exhibit)} style={{ display: 'flex', justifyContent: 'space-between', width: '100%', padding: 10, border: '1px solid #E8EDF5', borderRadius: 8, background: '#fff', marginBottom: 8, cursor: 'pointer', textAlign: 'left' }}>
                   <span>{title}<div style={{ fontSize: 11, color: '#5A6577' }}>{exhibit.code}</div></span>

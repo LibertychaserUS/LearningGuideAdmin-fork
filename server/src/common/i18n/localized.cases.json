@@ -1,0 +1,22 @@
+{
+  "localized": {
+    "en-GB": { "name": "Society" },
+    "zh-TW": { "name": "社會" },
+    "zh-CN": { "name": "社会" },
+    "fr-FR": { "name": "  " }
+  },
+  "fallback": "society-key",
+  "cases": [
+    { "language": "zh-CN", "expected": "社会", "why": "exact language" },
+    { "language": "en-GB", "expected": "Society", "why": "exact language" },
+    { "language": "zh-HK", "expected": "社会", "why": "same base language, first in sorted order" },
+    { "language": "en-US", "expected": "Society", "why": "same base language" },
+    { "language": "fr-FR", "expected": "Society", "why": "blank text counts as missing, then default language" },
+    { "language": "ja-JP", "expected": "Society", "why": "default language" }
+  ],
+  "withoutDefault": {
+    "localized": { "zh-CN": { "name": "社会" } },
+    "language": "ja-JP",
+    "expected": "society-key"
+  }
+}

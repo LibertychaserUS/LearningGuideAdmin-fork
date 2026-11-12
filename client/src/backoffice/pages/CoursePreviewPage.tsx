@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { PortalPreviewLink, PreviewCourse } from '../contracts/course';
 import { providerItems, strings } from '../contracts/course';
 import { boRequest } from '../lib/api';
-import { categoryLabel } from '../lib/categoryLabel';
+import { localizedName } from '../lib/i18n/localized';
 import { languageLabel, learningModeLabel, localizeMissing } from './course-editor/shared-utils';
 
 const L = (locale: string, zh: string, en: string) => (locale.startsWith('zh') ? zh : en);
@@ -121,7 +121,7 @@ export function CoursePreviewPage() {
 
       {course.category && (
         <div style={{ marginTop: 20 }}>
-          <span style={{ background: '#EEF3FF', color: '#2B58C8', borderRadius: 999, padding: '2px 10px', fontSize: 12 }}>{categoryLabel(locale, course.category)}</span>
+          <span style={{ background: '#EEF3FF', color: '#2B58C8', borderRadius: 999, padding: '2px 10px', fontSize: 12 }}>{localizedName(locale, course.category)}</span>
         </div>
       )}
       <h1 style={{ margin: '12px 0 8px', fontSize: 30 }}>{course.title}</h1>

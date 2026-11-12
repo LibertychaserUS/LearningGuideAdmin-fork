@@ -1,3 +1,5 @@
+import type { Localized } from '../lib/i18n/localized';
+
 export type StepCompleteness = { complete: boolean; missing: string[] };
 
 export type LessonCompleteness = {
@@ -63,7 +65,7 @@ export type Exhibit = {
   sourceText?: string | null;
   media: ExhibitMedia | null;
   thumbnail: ExhibitMedia | null;
-  localized: Record<string, { title?: string; description?: string }>;
+  localized: Localized<'title' | 'description'>;
 };
 
 export type Reading = { type: string; title: string; author: string | null; whyRecommended: string | null; language?: string };
@@ -128,6 +130,13 @@ export type TrialSettings = {
   rows: TrialRow[];
 };
 
+/** 课程分类：name 是稳定键，localized 是各语言显示名（通用多语言模板，见 lib/i18n/localized.ts）。 */
+export type CourseCategory = {
+  id: string;
+  name: string;
+  localized: Localized<'name' | 'description'>;
+};
+
 export type CourseDetail = {
   id: string;
   code: string;
@@ -136,7 +145,7 @@ export type CourseDetail = {
   learningLanguages: string[];
   defaultContentLanguage: string;
   categoryId: string | null;
-  category?: { id: string; name: string } | null;
+  category?: CourseCategory | null;
   cover?: { id: string } | null;
   subtitle: string | null;
   lifecycleStatus: string;
@@ -182,7 +191,7 @@ export type CourseSummary = {
   slug: string;
   title: string;
   subtitle: string | null;
-  category: { id: string; name: string } | null;
+  category: CourseCategory | null;
   learningMode: string;
   learningLanguages: string[];
   lessonCount: number;
@@ -235,7 +244,7 @@ export type PreviewCourse = {
   code: string;
   slug: string;
   versionLabel: string | null;
-  category: string | null;
+  category: CourseCategory | null;
   learningMode: string;
   learningLanguages: string[];
   defaultContentLanguage: string;
@@ -273,6 +282,8 @@ export type PortalPreviewDetail = {
   shortDescription: string | null;
   description: string | null;
   category: string | null;
+  /** 分类各语言显示名（通用多语言模板），缺的语言按模板规则回退到 category。 */
+  categoryLocalized: Localized<'name' | 'description'>;
   level: string | null;
   tags: unknown;
   coverUrl: string | null;
@@ -333,7 +344,7 @@ export type PopularCourseItem = {
   sortOrder: number;
   code: string;
   title: string;
-  category: string | null;
+  category: CourseCategory | null;
   liveStatus: string;
   trialEnabled: boolean;
   coverUrl: string | null;

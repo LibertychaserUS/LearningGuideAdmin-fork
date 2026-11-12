@@ -4,6 +4,8 @@ import {
   captureVersionSnapshot,
   type VersionSnapshot,
 } from './version-snapshot';
+import { CATEGORY_FIELDS } from './localized-fields';
+import { parseLocalized } from '../common/i18n/localized';
 
 type SnapshotLesson = VersionSnapshot['course']['lessons'][number];
 type SnapshotLocalization = VersionSnapshot['course']['localizations'][number];
@@ -207,7 +209,7 @@ export class PortalProjectionService {
       tags: unknown;
       referencePrice: number | null;
       discount: number | null;
-      category: { name: string } | null;
+      category: { name: string; localized: unknown } | null;
       localizations: SnapshotLocalization[];
       cover: { storageKey: string } | null;
     },
@@ -228,6 +230,10 @@ export class PortalProjectionService {
       shortDescription: loc?.shortDescription ?? null,
       description: loc?.overview ?? null,
       category: row.category?.name ?? null,
+      categoryLocalized: parseLocalized(
+        row.category?.localized,
+        CATEGORY_FIELDS,
+      ),
       level: row.level ?? null,
       tags: row.tags ?? [],
       referencePrice: row.referencePrice ?? 0,
@@ -253,7 +259,7 @@ export class PortalProjectionService {
       tags: unknown;
       referencePrice: number | null;
       discount: number | null;
-      category: { name: string } | null;
+      category: { name: string; localized: unknown } | null;
       cover: { storageKey: string } | null;
       localizations: SnapshotLocalization[];
       trialEnabled: boolean;
@@ -305,6 +311,10 @@ export class PortalProjectionService {
       shortDescription: loc?.shortDescription ?? null,
       description: loc?.overview ?? null,
       category: row.category?.name ?? null,
+      categoryLocalized: parseLocalized(
+        row.category?.localized,
+        CATEGORY_FIELDS,
+      ),
       level: row.level ?? null,
       tags: row.tags ?? [],
       referencePrice: row.referencePrice ?? 0,

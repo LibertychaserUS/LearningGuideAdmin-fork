@@ -3,12 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HISTORY_ACTIONS } from './publishing.service';
 import { summaryTitle } from './course-summary';
-
-const BANNER_LANGUAGES = ['en-GB', 'zh-CN'] as const;
+import { BANNER_FIELDS, categoryRef } from './localized-fields';
+import { missingLocalized, parseLocalized } from '../common/i18n/localized';
 
 /**
  * Operations（PRD §19）：Popular Courses + Discovery Banner。
@@ -51,7 +51,7 @@ export class OperationsService {
                 },
               )
             : '—',
-          category: course?.category?.name ?? null,
+          category: categoryRef(course?.category),
           liveStatus: course?.liveStatus ?? 'OFFLINE',
           trialEnabled: course?.trialEnabled ?? false,
           coverUrl: course?.cover
@@ -124,7 +124,9 @@ export class OperationsService {
     return {
       enabled: banner?.enabled ?? false,
       courseId: banner?.courseId ?? null,
-      localized: (banner?.localized as Record<string, unknown> | null) ?? null,
+      localized: banner?.localized
+        ? parseLocalized(banner.localized, BANNER_FIELDS)
+        : null,
       publishedAt: banner?.publishedAt ?? null,
       publishedBy: banner?.publishedBy ?? null,
       invalid,
@@ -153,6 +155,9 @@ export class OperationsService {
     localized?: Record<string, unknown> | null;
   }) {
     const courseId = body.courseId ?? null;
+    const bannerText = body.localized
+      ? parseLocalized(body.localized, BANNER_FIELDS)
+      : Prisma.DbNull;
     if (courseId) {
       const course = await this.prisma.commerceCourse.findUnique({
         where: { id: courseId },
@@ -179,12 +184,12 @@ export class OperationsService {
         id: 'singleton',
         enabled: Boolean(body.enabled),
         courseId,
-        localized: (body.localized ?? null) as Prisma.InputJsonValue,
+        localized: bannerText,
       },
       update: {
         enabled: Boolean(body.enabled),
         courseId,
-        localized: (body.localized ?? null) as Prisma.InputJsonValue,
+        localized: bannerText,
       },
     });
     return this.getBanner();
@@ -228,17 +233,12 @@ export class OperationsService {
             message: 'The featured course must be Online with Trial enabled.',
           });
         }
-        const localized = banner.localized ?? {};
-        for (const language of BANNER_LANGUAGES) {
-          const entry = (localized[language] ?? {}) as Record<string, unknown>;
-          for (const field of ['headline', 'subheading', 'buttonLabel']) {
-            if (typeof entry[field] !== 'string' || !entry[field].trim()) {
-              throw new ConflictException({
-                code: 'OPERATIONS_INVALID',
-                message: `Discovery Banner ${field} is required (${language}).`,
-              });
-            }
-          }
+        const [missing] = missingLocalized(banner.localized, BANNER_FIELDS);
+        if (missing) {
+          throw new ConflictException({
+            code: 'OPERATIONS_INVALID',
+            message: `Discovery Banner ${missing.field} is required (${missing.language}).`,
+          });
         }
       }
     }
