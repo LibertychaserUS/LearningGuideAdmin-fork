@@ -5,6 +5,22 @@
 - 执行方式：`Workflow` 脚本 `lg-longrange-real-tests`（会话脚本目录），本地真实 Postgres（learning_guide_e2e）+ 真实媒体 + 真实 zip
 - 测试对象：新的时间/参考系模型、包闭合契约、阶段/rendition 映射、学习会话事件、分类与权益回归
 
+## 运行方式（owner 2026-11-14：长程不上 CI，本地跑）
+
+夹具由 owner 提供的 165MB 真实包生成，体积上不了 git；因此长程套件**不在 CI**（`.github/workflows/ci.yml` 的 e2e job 只跑标准 e2e，说明写在 job 注释里）。
+
+```bash
+cd server
+# 一次：生成夹具（需要真实 zip 与 ffmpeg）
+python3 -I test/fixtures/longrange/scripts/build_all.py
+# 每条：空库 + 迁移 + 串跑
+export DATABASE_URL=postgresql://admin:admin@localhost:5432/learning_guide_e2e
+npx prisma migrate deploy
+npm run test:longrange
+```
+
+`test:longrange` 用独立配置 `test/jest-longrange.json`（`longrange-*.e2e-spec.ts`），默认 `test:e2e` 已通过 `testPathIgnorePatterns` 排除这些文件——两套不会互相混跑，也不会因缺夹具把 CI 判红。
+
 ## 0. 测试原则
 
 - 黑盒：只经 HTTP / Route Handler / 页面输出观察行为；不 import 内部实现、不断言私有字段。

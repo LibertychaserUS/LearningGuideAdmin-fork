@@ -142,6 +142,10 @@ jobs:
     # The e2e suite needs the full Prisma schema, so this job applies every migration
     # to a fresh database first, exactly like the local entrypoint
     # (DATABASE_URL + npx prisma migrate deploy + npm run test:e2e).
+    # Long-range (test:longrange, docs/Course_Category_LongRange_TestPlan.md) is NOT
+    # part of this job: it runs against fixtures generated from the owner-supplied
+    # 165MB package, which is deliberately not in git. Run it locally with
+    # `npm run test:longrange` on a machine that has those fixtures.
     # The migration history includes pgvector (vector(1536) + HNSW), so the service
     # must be the pgvector image; plain postgres:16 fails with 0A000.
     services:
@@ -164,7 +168,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/learning_guide_e2e
       # e2e 的 AI 配置加密测试需要 64 位 hex 密钥（固定测试值，不是生产密钥）。
-      AI_CONFIG_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      # 必须加引号：未加引号的全数字字面量会被 YAML 当数字解析成 "0"，
+      # 服务端按格式校验判为未配置，PUT /api/ai/config 直接 500。
+      AI_CONFIG_ENCRYPTION_KEY: "5f1c0a9e7b3d2468ace013579bdf24680ace13579bdf24680ace13579bdf2468"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
