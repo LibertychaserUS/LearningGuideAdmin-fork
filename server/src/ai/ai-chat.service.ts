@@ -221,9 +221,12 @@ export class AiChatService {
       courseId = resolved.courseId;
       releaseId = resolved.releaseId;
       // 2026-10-29：没有可用版本（aiTestReleaseId 和 currentReleaseId 都 null）时直接拒绝，
-      // 避免用空知识上下文回答（QA：新建课程未发布版本也能打开对话）
+      // 避免用空知识上下文回答（QA：新建课程未发布版本也能打开对话）。
+      // 文案保留 Knowledge 模块 Releases 页的操作指引。
       if (!releaseId) {
-        throw new BadRequestException('该课程没有可用的测试或上线版本');
+        throw new BadRequestException(
+          '该课程没有可用的测试或上线版本；请先在 Knowledge 模块 Releases 页创建版本',
+        );
       }
       await this.rateLimit.assertAllowed(
         courseId,
@@ -383,6 +386,7 @@ export class AiChatService {
         systemPrompt: prompts.systemPrompt,
         context: context ?? '',
         history,
+        locale: input.locale,
       });
       const messages = compiled.messages;
       promptHash = compiled.promptHash;

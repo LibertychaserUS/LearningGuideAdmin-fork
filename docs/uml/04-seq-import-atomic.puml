@@ -1,0 +1,46 @@
+@startuml
+title 时序 · 课程包导入（分类解析原子性）
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam sequenceMessageAlign center
+autonumber
+
+actor Operator
+participant "Backoffice API\nPOST /courses/import" as API
+participant "Package Job" as JOB
+participant "manifest 校验" as VAL
+participant "DB 事务" as TX
+database "CourseCatalogueEntry" as CAT
+database "CommerceCourse（草稿）" as COURSE
+
+Operator -> API : 上传 .zip
+API -> JOB : 创建 job
+JOB -> VAL : 校验 manifest（categoryPath / 旧 category）
+alt 列/字段不合法
+  VAL --> JOB : errors
+  JOB --> Operator : job FAILED（文件拒绝，无副作用）
+else 校验通过
+  JOB -> TX : BEGIN
+  TX -> CAT : 逐级解析 categoryPath\n（name 或任一 localized 显示名，trim + 忽略大小写；仅 ACTIVE）
+  alt 任一级找不到
+    TX --> JOB : CATEGORY_NOT_FOUND（列出未解析路径）
+    TX -> TX : ROLLBACK
+    JOB --> Operator : job FAILED\n草稿保持原样 · 未创建任何分类
+  else 全部解析成功
+    TX -> COURSE : 替换草稿内容（categoryId = 本地解析结果）
+    TX -> TX : COMMIT（草稿状态 = 有草稿）
+    JOB --> Operator : job DONE
+  end
+end
+
+note over TX, CAT
+  C5：解析与写入同一事务；
+  禁止自动创建分类；
+  失败不留孤儿分类 / 半导入草稿（PRD §23）
+end note
+note over JOB
+  导出 C6：写快照的 categoryPath；
+  未分类 → null；禁止 Uncategorized / Uncategorised
+end note
+@enduml

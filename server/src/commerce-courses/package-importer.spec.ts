@@ -5,7 +5,7 @@ import type { PackageManifest } from './contracts/manifest';
 function manifestWith(code: string, slug: string): PackageManifest {
   return {
     format: 'lg-course-package',
-    formatVersion: 1,
+    formatVersion: 2,
     packageId: 'pkg_test',
     exportedAt: new Date().toISOString(),
     source: {},
@@ -13,7 +13,7 @@ function manifestWith(code: string, slug: string): PackageManifest {
     course: {
       code,
       slug,
-      category: '',
+      categoryPath: null,
       learningMode: 'VIDEO_ONLY',
       learningLanguages: ['en-GB'],
       defaultContentLanguage: 'en-GB',

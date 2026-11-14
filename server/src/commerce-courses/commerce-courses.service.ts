@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,18 +13,9 @@ import { pickSummaryLocalization, summaryTitle } from './course-summary';
 import { detailToCompletenessInput } from './version-snapshot';
 import { HISTORY_ACTIONS, PublishingService } from './publishing.service';
 import { syncTextLearningPoints } from './course-authoring.service';
-import { draftContentHash, versionContentHash } from './content-hash';
 import { categoryRef } from './localized-fields';
 
-const CLEARED_DRAFT = {
-  hasDraft: false,
-  lifecycleStatus: 'LIVE',
-  draftSourceType: null,
-  draftSourceEnvironment: null,
-  draftSourceVersionLabel: null,
-} as const;
-
-/** 课程列表/详情/工作流（v2）�?*/
+/** 课程列表/详情/工作流（v2）。 */
 @Injectable()
 export class CommerceCoursesService {
   constructor(
@@ -162,9 +154,12 @@ export class CommerceCoursesService {
           where: { archivedAt: null },
           _count: { _all: true },
         }),
-        this.prisma.commerceCourse.count({
-          where: { archivedAt: null, hasDraft: true },
-        }),
+        // C9：有草稿 ⇔ draftRevision != liveBaseRevision（不再用 hasDraft 列）。
+        this.prisma.$queryRaw<Array<{ count: number }>>`
+            SELECT COUNT(*)::int AS count FROM "CommerceCourse"
+            WHERE "archivedAt" IS NULL AND "draftRevision" <> "liveBaseRevision"`.then(
+          (rows) => rows[0]?.count ?? 0,
+        ),
         this.prisma.commerceCourse.count({
           where: { archivedAt: null, liveVersionId: { not: null } },
         }),
@@ -221,44 +216,15 @@ export class CommerceCoursesService {
         code: 'COURSE_NOT_FOUND',
         message: 'Course not found',
       });
-    const draftState =
-      course.hasDraft &&
-      course.liveVersionId &&
-      (await this.clearDraftIfSameAsLive(
-        course.id,
-        course.liveVersionId,
-        course.updatedAt,
-      ))
-        ? CLEARED_DRAFT
-        : null;
+    // C9/O1：显式状态 No draft ⇔ draftRevision == liveBaseRevision；
+    // 不再读取内容哈希，编辑后改回原值仍算"有草稿"。
+    const hasDraft = course.draftRevision !== course.liveBaseRevision;
     return {
       ...course,
       category: categoryRef(course.category),
-      ...draftState,
+      hasDraft,
       completeness: computeCompleteness(detailToCompletenessInput(course)),
     };
-  }
-
-  /**
-   * PRD §15.1：草稿内容与线上版本相同即 No draft。
-   * 编辑只把 hasDraft 置为"可能有改动"，这里按内容指纹判定；改回原样后打开课程即恢复 No draft。
-   * 条件更新带上读到的 updatedAt：比较期间有人又改了草稿，就不清标记。
-   */
-  private async clearDraftIfSameAsLive(
-    courseId: string,
-    liveVersionId: string,
-    seenUpdatedAt: Date,
-  ): Promise<boolean> {
-    const [draft, live] = await Promise.all([
-      draftContentHash(this.prisma, courseId),
-      versionContentHash(this.prisma, liveVersionId),
-    ]);
-    if (!live || draft !== live) return false;
-    const { count } = await this.prisma.commerceCourse.updateMany({
-      where: { id: courseId, hasDraft: true, updatedAt: seenUpdatedAt },
-      data: CLEARED_DRAFT,
-    });
-    return count === 1;
   }
 
   async assertExists(id: string) {
@@ -297,6 +263,50 @@ export class CommerceCoursesService {
     return base || 'course';
   }
 
+  /**
+   * C3/C4 课程分类绑定校验（唯一一处）：分类必须存在、ACTIVE、层级 ≤ 2。
+   * DB 约束兜底同名/层级；这里给出契约错误码（CATEGORY_REQUIRED/NOT_FOUND/
+   * ARCHIVED/INVALID_LEVEL）。
+   */
+  private async assertCategoryBinding(
+    categoryId: string | null | undefined,
+  ): Promise<void> {
+    if (!categoryId) {
+      throw new UnprocessableEntityException({
+        code: 'CATEGORY_REQUIRED',
+        message: 'A category is required.',
+      });
+    }
+    const category = await this.prisma.courseCatalogueEntry.findUnique({
+      where: { id: categoryId },
+      select: { id: true, status: true, parentId: true },
+    });
+    if (!category) {
+      throw new UnprocessableEntityException({
+        code: 'CATEGORY_NOT_FOUND',
+        message: 'Category not found.',
+      });
+    }
+    if (category.status !== 'ACTIVE') {
+      throw new UnprocessableEntityException({
+        code: 'CATEGORY_ARCHIVED',
+        message: 'Category is archived and cannot be assigned.',
+      });
+    }
+    if (category.parentId !== null) {
+      const parent = await this.prisma.courseCatalogueEntry.findUnique({
+        where: { id: category.parentId },
+        select: { parentId: true },
+      });
+      if (parent?.parentId != null) {
+        throw new UnprocessableEntityException({
+          code: 'CATEGORY_INVALID_LEVEL',
+          message: 'Category is deeper than level 2.',
+        });
+      }
+    }
+  }
+
   async createCourse(
     body: {
       code: string;
@@ -318,6 +328,8 @@ export class CommerceCoursesService {
         : [language];
     const code = (body.code?.trim() || this.slugify(body.title)).toUpperCase();
     const slug = body.slug?.trim() || this.slugify(body.title);
+    // C3：创建必须带合法分类（缺失/不存在/已归档/层级>2 各自错误码）。
+    await this.assertCategoryBinding(body.categoryId);
     try {
       const course = await this.prisma.commerceCourse.create({
         data: {
@@ -326,9 +338,11 @@ export class CommerceCoursesService {
           learningMode: this.normaliseMode(body.learningMode),
           defaultContentLanguage: language,
           learningLanguages: learningLanguages,
-          categoryId: body.categoryId || null,
+          categoryId: body.categoryId ?? null,
           subtitle: body.subtitle ?? null,
           hasDraft: true,
+          // C9：新课程的草稿基线（liveBaseRevision 默认 0）。
+          draftRevision: 1,
           lifecycleStatus: 'WORKING',
           localizations: {
             create: {
@@ -434,6 +448,10 @@ export class CommerceCoursesService {
         message: 'Learning languages can only be added, not removed.',
       });
     }
+    // C4：更新时显式置空 → CATEGORY_REQUIRED；换分类同样走统一校验。
+    if (body.categoryId !== undefined) {
+      await this.assertCategoryBinding(body.categoryId);
+    }
     try {
       await this.prisma.commerceCourse.update({
         where: { id },
@@ -448,9 +466,11 @@ export class CommerceCoursesService {
           ...(body.subtitle !== undefined ? { subtitle: body.subtitle } : {}),
           ...(body.level !== undefined ? { level: body.level } : {}),
           ...(body.categoryId !== undefined
-            ? { categoryId: body.categoryId || null }
+            ? { categoryId: body.categoryId }
             : {}),
           hasDraft: true,
+          // C9：每次草稿写入 +1（No draft 只看 draftRevision == liveBaseRevision）。
+          draftRevision: { increment: 1 },
           lifecycleStatus: 'WORKING',
           draftSourceType: null,
           draftSourceEnvironment: null,
@@ -499,7 +519,11 @@ export class CommerceCoursesService {
       }),
       this.prisma.commerceCourse.update({
         where: { id },
-        data: { hasDraft: true, lifecycleStatus: 'WORKING' },
+        data: {
+          hasDraft: true,
+          draftRevision: { increment: 1 },
+          lifecycleStatus: 'WORKING',
+        },
       }),
     ]);
     return this.detail(id);
@@ -633,6 +657,7 @@ export class CommerceCoursesService {
           where: { id },
           data: {
             hasDraft: true,
+            draftRevision: { increment: 1 },
             lifecycleStatus: 'WORKING',
             draftSourceType: null,
             draftSourceEnvironment: null,
@@ -722,6 +747,7 @@ export class CommerceCoursesService {
       where: { id },
       data: {
         hasDraft: true,
+        draftRevision: { increment: 1 },
         lifecycleStatus: 'WORKING',
         draftSourceType: null,
         draftSourceEnvironment: null,
@@ -741,6 +767,8 @@ export class CommerceCoursesService {
     liveStatus: string;
     liveVersionId: string | null;
     hasDraft: boolean;
+    draftRevision: number;
+    liveBaseRevision: number;
     trialEnabled: boolean;
     updatedAt: Date;
     category: { id: string; name: string; localized: unknown } | null;
@@ -775,7 +803,8 @@ export class CommerceCoursesService {
       lifecycleStatus: row.lifecycleStatus,
       liveStatus: row.liveStatus,
       liveVersionId: row.liveVersionId,
-      hasDraft: row.hasDraft,
+      // C9：显式状态（No draft ⇔ draftRevision == liveBaseRevision）。
+      hasDraft: row.draftRevision !== row.liveBaseRevision,
       trialEnabled: row.trialEnabled,
       published: Boolean(row.liveVersionId),
       updatedAt: row.updatedAt,

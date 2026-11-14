@@ -1,0 +1,427 @@
+WEBVTT
+
+00:00:02.000 --> 00:00:10.422
+State Spaces, Vector Spaces and Trajectories
+
+00:00:10.423 --> 00:00:18.845
+Constellation diagram used as an introductory illustration
+
+00:00:18.846 --> 00:00:27.268
+State Variables and State Spaces
+
+00:00:27.269 --> 00:00:35.691
+S: I’m trying to understand how to model systems over time, but I’m not sure where to start. What does a “state” actually mean?
+
+00:00:35.692 --> 00:00:44.114
+T: To understand system dynamics and how systems change over time, we will develop a basic mathematical framework to help understand this.
+
+00:00:44.115 --> 00:00:52.537
+A cup of coffee described by four state variables (T, W, V, C): temperature = 63.1 °C, weight = 128 g, volume = 470 ml, caffeine concentration = 20 mg/oz
+
+00:00:52.538 --> 00:01:00.960
+Our first example is going to be a single number. We will define a state as a number that characterizes the system at a time. For example, suppose we are studying a cup of coffee in a room. The state could be where it is in the room, the amount of coffee in the cup, or its temperature. In this particular example, the temperature, T, is chosen as the state of the cup of coffee at a time.
+
+00:01:00.961 --> 00:01:09.383
+S: So in our example here, the only variable we will be looking at is the temperature and nothing else?
+
+00:01:09.384 --> 00:01:17.806
+T: Yes, that is correct. In our example, temperature is the state of the cup of coffee at a certain time.
+
+00:01:17.807 --> 00:01:26.229
+S: I understand that the temperature is a characteristic of the system, which in this case is the cup but why do we only pick one variable? Doesn’t that ignore other important aspects of the system?
+
+00:01:26.230 --> 00:01:34.652
+T: We choose temperature and not the amount of coffee or some other variable that describes the system because, in this case, the interest is in the temperature of the cup of coffee. If the interest were in how fast it was evaporating, a different state variable would probably be chosen. The volume might be chosen or the weight of the coffee in the cup. If the interest were in how strong the coffee was, then some ratio of the amount of coffee to the amount of liquid, such as mg per oz, might be chosen. But in this case, it is just going to be a single variable, T, and T is going to be the temperature. That temperature is going to change over time and give us the development of the system.
+
+00:01:34.653 --> 00:01:43.075
+S: Do these state variables always have units, or can they just be abstract numbers?
+
+00:01:43.076 --> 00:01:51.498
+States variables always have units.
+
+00:01:51.499 --> 00:01:59.921
+In order for a system to be mathematically tractable, its states must be described using numbers and a unitized measurement standard.
+
+00:01:59.922 --> 00:02:08.344
+States Have Units
+
+00:02:08.345 --> 00:02:16.767
+T: The first point we have to make about states is that states have units. In this case, temperature will be measured in degrees Kelvin, which is an absolute temperature scale. If we were measuring the amount of coffee left, the volume of the cup of coffee could be measured by its mass in grams or its volume in cubic inches. Different variables obviously require different units, but states always have units.
+
+00:02:16.768 --> 00:02:25.190
+S: So this applies beyond physical systems like coffee? What about electricity or biological systems, such as animal populations?
+
+00:02:25.191 --> 00:02:33.613
+Three examples of one-dimensional state spaces: voltage, population size, and the fraction of a wolf population that has black fur
+
+00:02:33.614 --> 00:02:42.036
+T: Yes, that is the case. With electricity, the state variable might be voltage. We could also be looking at an animal population and studying birth and death, along with the ecological changes that occur. In that case, x might equal the number of animals, again always at time t. That goes without saying. The unit in this case is the number of animals, such as bears or rabbits, depending on what is being studied. This can also be modelled for insulin-glucose models and susceptible-infected human models.
+
+00:02:42.037 --> 00:02:50.459
+We now have this concept of just a single variable as a state. The term variable is used because these are also called state variables. The state variable for the coffee system in this particular case is temperature, because that is what is being studied.
+
+00:02:50.460 --> 00:02:58.882
+S: Do “state” and “state variable” mean the same thing?
+
+00:02:58.883 --> 00:03:07.305
+A dynamic system comprises a collection of states at different times.
+
+00:03:07.306 --> 00:03:15.728
+A state variable measures a state, using a relevant unit system, at a particular time.
+
+00:03:15.729 --> 00:03:24.151
+Dynamic System and State Variable
+
+00:03:24.152 --> 00:03:32.574
+T: Not quite. A dynamic system changes over time and these changes are conceived of a collection of states at particular times. Which type of state we choose depends on what it is that we are trying to understand. The state variable is the measurement of that state. So the state variables in our examples are T, the temperature, or x, the number of animals.
+
+00:03:32.575 --> 00:03:40.997
+S: What does this look like visually? Is there some kind of graph?
+
+00:03:40.998 --> 00:03:49.420
+A one-dimensional state axis: the state is X = 4 at time t₁ and X = 6 at time t₂
+
+00:03:49.421 --> 00:03:57.843
+T: The state is associated with a geometric construction known as the state space, which is a geometric picture of the set of all possible states.
+
+00:03:57.844 --> 00:04:06.266
+A point in state space represents the state of a system at a time. We also see a theme that will appear often in the next week: the change of state of a system is a movement from one state point to another state point, and that is how the system evolves over time.
+
+00:04:06.267 --> 00:04:14.689
+S: I now understand how it works if there is only one variable in the system. But in reality, many systems have more than just one variable for it to make sense, so what happens if a system needs more than one variable?
+
+00:04:14.690 --> 00:04:23.112
+Three two-dimensional state spaces: shark–tuna space, insulin–glucose space, and susceptible–infected space
+
+00:04:23.113 --> 00:04:31.535
+T: Well let’s think about modelling the animal population again but for sharks and tunas. The number of sharks, S, and the number of tuna, T, describe the state of a system at a time. So we are led to this concept of a two-tuple, or pair. A two-tuple of states, (S, T), is necessary to describe the state of the shark-tuna system at a time.
+
+00:04:31.536 --> 00:04:39.958
+S: So what does that look like as a space? A single variable gives a one-dimensional space, but what about two variables? Would that be given in a two dimensional space?
+
+00:04:39.959 --> 00:04:48.381
+T: Yes, like you said a single variable gives a one dimensional space whilst a pair of variables needs two dimensions, S and T, to describe the state of the system. The point (S0, T0) is plotted as a point in S-T space. Here is S0, here is T0, and here is the point (S0, T0) in S-T space. This point in S-T space represents the state of the shark-tuna system at a point in time. Two variables are represented by a two-tuple, and that this two-tuple is in turn represented as a point in the two-dimensional shark-tuna space. The phrase shark-tuna space will be used often.
+
+00:04:48.382 --> 00:04:56.804
+S: So if someone asked how the shark-tuna system is doing right now, what would the answer to that be?
+
+00:04:56.805 --> 00:05:05.227
+T: The answer would be that the shark-tuna system is at the point (S0, T0), where S0 is the actual number of sharks at this time and T0 is the actual number of tuna at this time. In a two-variable system, two state variables are needed. They are represented in a fixed way, with parentheses around them and a comma between them. That is the two-tuple (S, T), representing sharks and tuna.
+
+00:05:05.228 --> 00:05:13.650
+S: Is this “space” that you are talking about a real physical space like the ocean?
+
+00:05:13.651 --> 00:05:22.073
+T: No, the shark-tuna space is not the ocean. When we talk about spaces here, it has nothing to do with physical space. It is an abstract space spanned by the two variables S and T, and a point in it represents a certain number of sharks and a certain number of tuna at a time. For example, we can talk about other two-tuple state spaces, such as the insulin – glucose space, an important feedback process in the human digestive system, or the susceptibles – infected space that is used to describe epidemics
+
+00:05:22.074 --> 00:05:30.496
+Defining Vectors
+
+00:05:30.497 --> 00:05:38.919
+S: I now know that one and two variable systems exist. But if two variable systems exist, wouldn’t it make sense for three variable systems to exist too?
+
+00:05:38.920 --> 00:05:47.342
+T: Yes, so let’s now introduce a third variable into the system, where the tuna survived by eating plankton. Now we have a three-variable system. It is represented by a three-tuple. At a particular point in time, it's S0, T0, P0: a certain number of sharks, a certain number of tuna, and a certain number of plankton. A certain point within the system can be represented by a three-tuple or more technically, a three-vector. When we have n variables, we will have an n-vector.
+
+00:05:47.343 --> 00:05:55.765
+A three-dimensional state space with shark, tuna and plankton axes, and a state vector drawn from the origin
+
+00:05:55.766 --> 00:06:04.188
+S: So the three numbers are like coordinates?
+
+00:06:04.189 --> 00:06:12.611
+T: Yes, geometrically, we have a shark axis, we have a tuna axis, and now we have a plankton axis. A point in shark-tuna-plankton space, S0, T0, P0, is a certain number of sharks, tuna and plankton.
+
+00:06:12.612 --> 00:06:21.034
+S: Does the 0 in these numbers mean that the population of these animals is 0?
+
+00:06:21.035 --> 00:06:29.457
+T: In the state space S0, T0, P0, that zero is just an index number and it does not mean that the number of sharks is zero. The zero here means that this is the first instance, and we start numbering with zero. That's the first instance of our state point. S0 could be 500, T0 could be 38, and P0 could be 2,400. So this is the three-tuple that represents the state of the system at a time, and this is, of course, our three-vector.
+
+00:06:29.458 --> 00:06:37.880
+A point (3, 7) in the shark–tuna plane, shown as a dot (left) and as an arrow from the origin (right)
+
+00:06:37.881 --> 00:06:46.303
+Vectors in an abstract X-Y space have both magnitude and direction. The state point S0, T0, P0 can be thought of as the tip of the vector. So the terminology "vectors as arrows" has exactly the same information as "vectors as state points." Because given the state point, it's easy to draw the arrow. It's trivial to draw the arrow from the origin to the state point. That has the same information. And given the arrow, you just take the tip of it and call that the state point.
+
+00:06:46.304 --> 00:06:54.726
+S: What if there are more than three variables how will we be able to visualize it?
+
+00:06:54.727 --> 00:07:03.149
+T: We cannot visualise it in our heads but that isn’t to say that they do not exist. Let me give you an example of a neuron. When you study the neuron, you will learn that the neuron is characterized by a voltage, by a sodium concentration, by a potassium concentration, and by a calcium concentration. So the state of the neuron at a time is represented by a four-tuple, or a four-vector. However, we cannot draw this as there is no way of representing four variables simultaneously on a two-dimensional graph, which is all we have. Despite this, there is nothing wrong with the concept of four-space and we can still operate it mathematically.
+
+00:07:03.150 --> 00:07:11.572
+State Space Rules for Operating with Vectors
+
+00:07:11.573 --> 00:07:19.995
+S: How do we actually work with vectors once we have them?
+
+00:07:19.996 --> 00:07:28.418
+T: We can use a vector space to help us operate with them. The vector space is defined by the variables and by two very important rules for operating with vectors.
+
+00:07:28.419 --> 00:07:36.841
+Two Vector Operations
+
+00:07:36.842 --> 00:07:45.264
+Addition
+
+00:07:45.265 --> 00:07:53.687
+Vector 1 (X1 , Y1 ) + Vector 2 (X2 , Y2 ) = Vector 3 (X1+2 , Y1+2)
+
+00:07:53.688 --> 00:08:02.110
+Multiplication
+
+00:08:02.111 --> 00:08:10.533
+Vector 1 X Vector 2: nonsensical
+
+00:08:10.534 --> 00:08:18.956
+Scalar Vector 1 (X1 , Y1 ) = Vector 1 (scalar X1 , scalar Y1 )
+
+00:08:18.957 --> 00:08:27.379
+Two Vector Operations
+
+00:08:27.380 --> 00:08:35.802
+The first rule is called addition. If we have one variable, let's call it X. X is the variable. And let's say that two values of X are x1 and x2. Now of course, that also means that those are two different points in the one-dimensional vector space. But right now, we will just see them as two variables.
+
+00:08:35.803 --> 00:08:44.225
+S: When we add them, are we just treating them like ordinary numbers, or is there a special vector rule here?
+
+00:08:44.226 --> 00:08:52.648
+T: That’s more or less what you do but you must ensure that the same components are added to each other. If x1 is a vector and x2 is a vector, we can make a third vector called x1 plus x2. And we know how to add these two things because they are two numbers, and we know how to add numbers. So we know how to add two vectors to get a third vector in the same space.
+
+00:08:52.649 --> 00:09:01.071
+The second rule is called multiplication, where we will multiply vectors by numbers. If x1 is the temperature and x2 is a temperature, what is the product of two temperatures? We have no idea, which is why in general we do not multiply vectors together. So if a is a number and x1 is a vector, then the product would be ax1. Again, because we know how to multiply a number by a number: where a is a number and x1 is also a number, we know how to multiply two numbers. And so a times x1 is going to be some other vector x2, and that's also going to be an element of the space.
+
+00:09:01.072 --> 00:09:09.494
+So these are the two principle rules for dealing with vectors: addition of two vectors, and multiplication of a vector by a number.
+
+00:09:09.495 --> 00:09:17.917
+When we multiply this vector by this number here, the fancy name for this number is a scalar.
+
+00:09:17.918 --> 00:09:26.340
+S: So what is a scalar? Is it just a plain number, does it carry any meaning behind it? Likewise, does the vector carry meaning or units?
+
+00:09:26.341 --> 00:09:34.763
+T: So a scalar is just a number that we multiply. It has no units. We multiply the vector by the scalar to get a new number of animals or temperature or whatever. These are the rules for adding vectors and multiplying a vector by a scalar in one dimension.
+
+00:09:34.764 --> 00:09:43.186
+S: Does the same idea still work if there are more variables or do some of the rules change?
+
+00:09:43.187 --> 00:09:51.609
+Vector addition: the green vector (1, 3) plus the blue vector (8, 4) gives the red resultant vector
+
+00:09:51.610 --> 00:10:00.032
+T: Let me give you an example to help you visualise this. Let's take a shark-tuna case where we have one state vector representing (S1, T1)—certain number of sharks and a certain number of tuna—and we want to add to it a second state vector which we are going to call (S2, T2). How do we add two-dimensional state vectors?
+
+00:10:00.033 --> 00:10:08.455
+S: I’m guessing we add each part separately, but I’m not sure if that is actually allowed?
+
+00:10:08.456 --> 00:10:16.878
+T: There is no automatic answer to this question, but there is an answer. The answer is: we define the sum of two vectors by adding them component-wise. So the sum of (S1, T1) and (S2, T2) is going to be the new state vector which we will call (S3, T3), and that's going to be equal to (S1 + S2, T1 + T2). So we add the S components, we add the T components. That is the sum of two vectors. We say that vectors add component-wise. If there are three components, we're working in a three-dimensional system. Same thing: (S1, T1, P1) plus (S2, T2, P2) is equal to (S1 + S2, T1 + T2, P1 + P2). Vector addition is commutative.
+
+00:10:16.879 --> 00:10:25.301
+S: Okay, so we must add them by components but in the end we will still obtain a vector that is in the same dimensions. But what does commutative mean?
+
+00:10:25.302 --> 00:10:33.724
+T: Whether we add the first vector to the second vector or vice versa would still lead to the same final vector.
+
+00:10:33.725 --> 00:10:42.147
+Scalar multiplication of a vector A by 2, 0.5, −1 and −0.5
+
+00:10:42.148 --> 00:10:50.570
+S: But how do we work with multiplication? When we perform scalar multiplication, will it just scales each component equally?
+
+00:10:50.571 --> 00:10:58.993
+T: In terms of multiplication, if a is a scalar and (S, T) is a two-dimensional state vector, we define a times (S, T) as (a times S, a times T). And that also makes sense, because if you think about a certain number of sharks and a certain number of tuna, and I say I want to take a patch of ocean that is twice as big as the previous—I want to multiply it by two—and everything else is homogeneous, what would I expect to see? I would expect to see twice as many sharks and twice as many tuna. So a times (S, T) is equal to (aS, aT).
+
+00:10:58.994 --> 00:11:07.416
+S: So in one dimension, are we just dealing with ordinary numbers again?
+
+00:11:07.417 --> 00:11:15.839
+T: So first of all, we will look in 1D where we have a state variable X and the state space is X-space. We're going to have two values here: x1 and x2. In this case, of course, our state space—because it's animals—has only non-negative numbers, because negative numbers of rabbits just don't make sense. So our state space for physical reasons is confined to the non-negative numbers.
+
+00:11:15.840 --> 00:11:24.262
+S: When you add them geometrically, is that the same as tip-to-tail addition from vectors?
+
+00:11:24.263 --> 00:11:32.685
+T: So we talked about how to add x1 plus x2 just by adding two numbers, but it's sort of interesting to look at that geometrically. We're going to take this arrow which is the arrow representing the state point x1, and we're going to go over to x2, and we're just going to add this arrow right onto x2. And this new point here—this is the point x1 plus x2. We're just going to add those two arrows by just putting them tip to tail. That's the geometric version of addition.
+
+00:11:32.686 --> 00:11:41.108
+S: So what about scalar multiplication? What does that do geometrically?
+
+00:11:41.109 --> 00:11:49.531
+T: Let’s try starting with a state x1. We're going to multiply that by a scalar. What does that correspond to geometrically? Well, here is the vector x1, and ax1 is just the vector whose length is a times the x1 length. So if a is 2, then ax1 is going to look like what is shown below. If a is 3, it's going to be even longer. If a is 10, it's going to be longer. If a is 10.5, it's going to be longer still—nothing wrong with fractional scalar values. And interestingly, if a is less than one, then a times x1 is smaller than x1.
+
+00:11:49.532 --> 00:11:57.954
+So we have now successfully shown the equivalence between the geometric construct and the algebraic construct for adding vectors in one dimension and for scalar multiplication of vectors in one dimension.
+
+00:11:57.955 --> 00:12:06.377
+S: So when the value of the scalar is larger than 1, the vectors gets longer. But what does scalar multiplication do geometrically if the scalar is smaller than 1 or even negative?
+
+00:12:06.378 --> 00:12:14.800
+T: When multiplying vectors, if the scalar is larger than 1, the vector is stretched out in the same direction by an amount equal to the scalar. When a is smaller than 1, it acts as a shrinker and the resultant vector is shorter.
+
+00:12:14.801 --> 00:12:23.223
+When a is negative assuming the X-Y plane can take on negative values, the vector will then point to the opposite direction, flipping the vector. The same applies for vectors in a higher number of dimensions.
+
+00:12:23.224 --> 00:12:31.646
+Vectors And Vector Spaces
+
+00:12:31.647 --> 00:12:40.069
+T: In one dimension, the state vector is just a vector X, represented as a single number X. The X we are talking about is just a number, or as it's called in math, a real number.
+
+00:12:40.070 --> 00:12:48.492
+Real Numbers
+
+00:12:48.493 --> 00:12:56.915
+Complex Numbers
+
+00:12:56.916 --> 00:13:05.338
+a + bi
+
+00:13:05.339 --> 00:13:13.761
+1, 2 ½ , -1, 1.00236, π
+
+00:13:13.762 --> 00:13:22.184
+a and b are real numbers, i =√-1
+
+00:13:22.185 --> 00:13:30.607
+Real Numbers / Complex Numbers
+
+00:13:30.608 --> 00:13:39.030
+S: What is a real number? Is it just any normal number we use in this space?
+
+00:13:39.031 --> 00:13:47.453
+T: Real numbers include every number that you are able to think of - fractions, integers, square roots, pi etc. Real numbers are equivalent to points on the geometric one-dimensional line. The infinite line is the geometric picture of the real numbers. In maths, the symbol for real numbers is written as an R with a double vertical part.
+
+00:13:47.454 --> 00:13:55.876
+Complex numbers take the form a + bi, where i is the square root of minus 1. Numbers that take on this form are complex numbers, and they are opposed to real numbers.
+
+00:13:55.877 --> 00:14:04.299
+S: What is i? What type of number is that?
+
+00:14:04.300 --> 00:14:12.722
+T: I is an imaginary number and so a complex number can be seen as adding up a real and an imaginary number
+
+00:14:12.723 --> 00:14:21.145
+So if the real numbers represent one dimension, what represents two dimensions? Well, you have to have an X from R and you have to have a Y from R.
+
+00:14:21.146 --> 00:14:29.568
+S: So how does this work for two-dimensional and three-dimensional spaces? How can they be written formally?
+
+00:14:29.569 --> 00:14:37.991
+= 1 dimensional space, described by 1 variable, x
+
+00:14:37.992 --> 00:14:46.414
+ℝ²
+
+00:14:46.415 --> 00:14:54.837
+= 2 dimensional space, described by 2 variables, x, y
+
+00:14:54.838 --> 00:15:03.260
+ℝ³
+
+00:15:03.261 --> 00:15:11.683
+= 3 dimensional space, described by 3 variables, x, y, z
+
+00:15:11.684 --> 00:15:20.106
+ℝⁿ
+
+00:15:20.107 --> 00:15:28.529
+= n dimensional space, described by n variables, n1 , n2 , n3 etc.
+
+00:15:28.530 --> 00:15:36.952
+State Spaces of Increasing Dimension (ℝ, ℝ², ℝ³, ℝⁿ)
+
+00:15:36.953 --> 00:15:45.375
+T: The set of all such pairs X Y, with X in R and Y in R, has a name. It's called R cross R, or R squared, or R². R² is the set of all pairs such that X is in R and Y is in R. The name for this, named by Descartes, is the Cartesian product of R. R³ is R cross R cross R, which is the set of all triples X Y Z where X is in R, Y is in R and Z is in R. This is called the Cartesian product of three copies of R. Descartes was the person who said that the space R cross R of real numbers X Y is identical to the two-dimensional geometric space X Y. A point (x₀, y₀) becomes a point in X-Y space.
+
+00:15:45.376 --> 00:15:53.798
+S: So from what I am understanding, we have an abstract space, and not a physical space?
+
+00:15:53.799 --> 00:16:02.221
+T: Yes, that is the case here. Every time we talk about a space whose axes are not longitude and latitude on the earth, then we are talking about a Riemann space—an abstract space of a doubly extended quantity or a triply extended quantity. The whole idea of abstract n-dimensional space is due to Riemann, and we are using it very heavily.
+
+00:16:02.222 --> 00:16:10.644
+Vectors and Trajectories Change in State Space, Time Series Translation
+
+00:16:10.645 --> 00:16:19.067
+S: Over time, will we see that the system actually moves within the space due to the changes within the variables of the system?
+
+00:16:19.068 --> 00:16:27.490
+Change of state on a one-dimensional temperature axis: the state point moves from T₁ (at t₁) to T₂ (at t₂)
+
+00:16:27.491 --> 00:16:35.913
+T: Yes, it will. Over time, the system will move from point to point. Let's call this x1 at time t1, and then there is x2 at time t2 later on. It's going to be at another point. Later on, it's going to be at another point. Descriptively, change can be seen as a trajectory through state space.
+
+00:16:35.914 --> 00:16:44.336
+S: Can you give an example of what a trajectory means in practice?
+
+00:16:44.337 --> 00:16:52.759
+The Romeo–Juliet plane with states (L, L), (H, H) and (H, L): positive is love, negative is hate
+
+00:16:52.760 --> 00:17:01.182
+T: First of all, let's take one of our Romeo and Juliet examples. So here's Juliet's love for Romeo, here's Romeo's love for Juliet. R equals Romeo's love for Juliet, again as always at time T. And J equals Juliet's love for Romeo, again at time T.
+
+00:17:01.183 --> 00:17:09.605
+S: In this case, I am guessing we will be taking positive as love and negative as hate?
+
+00:17:09.606 --> 00:17:18.028
+T: Yes, let's suppose that at one point, this couple was at this point. So remember, in the Romeo and Juliet example, positive values denote love, negative values denote hate. So we can label this point. We know what this is: this is a point L, L—Juliet loves Romeo because the J value is positive, and Romeo loves Juliet because the R value is positive.
+
+00:17:18.029 --> 00:17:26.451
+S: So if the point changes, does that mean the relationship changes too?
+
+00:17:26.452 --> 00:17:34.874
+T: Yes, over time, the couple will move in the trajectory shown in the graph. As we know, when someone becomes more positive, it means that person’s love is growing and when it becomes more negative the hate becomes stronger. The relationship between the two people will depend on how it moves.
+
+00:17:34.875 --> 00:17:43.297
+S: What does the next point mean if one value changes sign?
+
+00:17:43.298 --> 00:17:51.720
+T: The J value is still positive, but the R value is now negative. So we are in a "Juliet loves Romeo but Romeo hates Juliet" situation. Maybe further on, the system continues to evolve, and it evolves to this point. And what does that point mean? It means J is negative and R is negative. And so we are now in "hate-hate"—they each hate each other. Where the trajectory will go through now in the model will depend on the dynamics of the inter-relation between these couples. This is just a simple example of the idea that change is a trajectory through state space.
+
+00:17:51.721 --> 00:18:00.143
+Oscillations in the populations of sharks and tuna over time
+
+00:18:00.144 --> 00:18:08.566
+In the shark-tuna system, this will be what it looks like:
+
+00:18:08.567 --> 00:18:16.989
+The time series of the sharks and tunas on the right. From the starting point that has been shown, S has been decreasing throughout and it will stay low for a while. In the region where S is low, it will stay low for quite a while until S starts to increase again. S starts to increase again until it comes back to the green dot at the end and completes this excursion.
+
+00:18:16.990 --> 00:18:25.412
+S: Why does the tuna population stay low when the shark population is changing?
+
+00:18:25.413 --> 00:18:33.835
+T: Well, at some initial point, you'll notice that T was at its minimum value. T is as low as it is ever going to be. And so let's have T at a minimum value here at that same starting point. And then what happens to T is pretty much nothing during the whole part at the start. While the state point is going to the left, T is staying at its low value. And T does not start to rise until S has hit its minimum. So at the minimum of S here, we're going to have T start to rise. And then T continues to rise all the time while S is still very low. T rises, and then when T is at its maximum, T begins to decline and S begins to increase. And so we get a curve that looks like that.
+
+00:18:33.836 --> 00:18:42.258
+S: That helps me understand it better now. So what should be my key takeaways from today’s lecture?
+
+00:18:42.259 --> 00:18:50.681
+Key Concepts
+
+00:18:50.682 --> 00:18:59.104
+A system can be thought of as a collection of states at different times
+
+00:18:59.105 --> 00:19:07.527
+These states can be mathematically represented by vectors
+
+00:19:07.528 --> 00:19:15.950
+Vectors can be added together and multiplied by scalars
+
+00:19:15.951 --> 00:19:24.373
+The dynamics of a system can be mathematically represented as the trajectory through the vectors describing its states at different times.
+
+00:19:24.374 --> 00:19:32.796
+Key Concepts
+
+00:19:32.797 --> 00:19:41.219
+T: The first key concept is the concept of the state vector. Think of a system as a collection of states over time. Think of a vector as the mathematical description of those states. The state vector X, Y, Z corresponds to a point in state space. Since the vector is a tuple, X,Y,Z, this is a point 3 dimensional state space. This means that this system is described by the interaction of three variables, e.g. sharks, tuna and plankton.
+
+00:19:41.220 --> 00:19:49.642
+The second piece of machinery we talked about was adding vectors and multiplying a vector by a scalar. And we saw what that means geometrically. It means taking the two vectors and just adding them tip-to-tail. And then the resultant vector here is the vector X1 + X2—or rather, (X1, Y1) + (X2, Y2) is the resultant red vector. And when we multiply a vector by a scalar, that amounts to taking that vector and either stretching it or shrinking it, depending upon whether a is bigger than one or not, in the same direction.
+
+00:19:49.643 --> 00:19:58.067
+Finally, the third idea we developed was change being a trajectory through the state space.

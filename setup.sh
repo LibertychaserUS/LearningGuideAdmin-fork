@@ -81,7 +81,7 @@ fi
 step 'PostgreSQL'
 if [ "$WITH_DOCKER" -eq 1 ]; then
   command -v docker >/dev/null 2>&1 || fail '未检测到 Docker，无法 --with-docker 启动 PostgreSQL。'
-  echo '使用 Docker Compose 启动 PostgreSQL（postgres:16）...'
+  echo '使用 Docker Compose 启动 PostgreSQL（pgvector/pgvector:pg16）...'
   ( cd "$ROOT" && POSTGRES_PORT="$DB_PORT" POSTGRES_USER="$DB_USER" POSTGRES_PASSWORD="$DB_PASSWORD" POSTGRES_DB="$DB_NAME" docker compose up -d postgres )
   printf '数据库连接串（请写入 server/.env 的 DATABASE_URL）：\n  postgresql://%s:%s@localhost:%s/%s\n' \
     "$DB_USER" "$DB_PASSWORD" "$DB_PORT" "$DB_NAME"

@@ -5,14 +5,25 @@ import type {
   PackageManifest,
   PackageValidationReport,
 } from './contracts/manifest';
+import type { PackageManifestV2 } from '../partc/contracts/package-manifest';
+import { PartCError } from '../partc/errors';
 import { validateManifestShape } from './manifest.validate';
 import { validateCourseContent } from './package-validate';
 import { validateMediaFile, MediaValidationError } from './media-validate';
+import {
+  compilePartcPackage,
+  decodeTemplateWorkbook,
+  isPartCV2Manifest,
+  reportFromIssues,
+  reportFromPartCError,
+  templateResourcePathOf,
+  PartcCompileError,
+} from './partc-import';
 import type { CommerceCourseConfig } from './commerce.config';
 import { CourseStorageService } from './storage.service';
 
 export interface ExtractedPackage {
-  manifest: PackageManifest;
+  manifest: PackageManifest | PackageManifestV2;
   files: Map<string, Buffer>;
 }
 
@@ -28,11 +39,27 @@ export class PackageError extends HttpException {
   }
 }
 
+/** 校验失败且带有结构化报告（C5：job report 必须带错误码与源坐标）。 */
+export class PackageValidationError extends PackageError {
+  constructor(
+    code: string,
+    status: number,
+    message: string,
+    readonly report: PackageValidationReport,
+  ) {
+    super(code, status, message);
+  }
+}
+
 const MAX_ENTRIES = 10_000;
 
 /**
- * 课程包解析 + 全面校验（解压、manifest、checksums、媒体、内容完整性、冲突）。
+ * 课程包解析 + 全面校验（解压、manifest、媒体、内容完整性、冲突）。
  * 纯逻辑，不落库；结果供导入作业消费。见设计文档 §5.4。
+ *
+ * 资源完整性不使用任何 checksums/摘要清单（C0 红线⑦：全系统不使用
+ * 哈希/digest 做身份或完整性权威）：Part C v2 包靠闭合 resources + 大小校验，
+ * legacy 包不再校验 checksums.sha256（raw 素材导入已退役）。
  */
 export class PackageInspector {
   constructor(
@@ -42,7 +69,7 @@ export class PackageInspector {
 
   /** 安全解压 + 校验，返回 manifest 与文件表。 */
   async inspect(zipBytes: Buffer): Promise<{
-    manifest: PackageManifest;
+    manifest: PackageManifest | PackageManifestV2;
     files: Map<string, Buffer>;
     report: PackageValidationReport;
   }> {
@@ -122,17 +149,21 @@ export class PackageInspector {
         'manifest.json is not valid JSON.',
       );
     }
-    const shape = validateManifestShape(rawManifest);
-    if (!shape.manifest || shape.report.errors.length > 0) {
-      throw new PackageError(
-        'PACKAGE_MANIFEST_INVALID',
-        400,
-        firstError(shape.report),
-      );
+
+    // 契约分派：Part C v2（唯一 v2 SSOT）走编译器校验；旧聚合形状走既有校验。
+    if (isPartCV2Manifest(rawManifest)) {
+      return this.inspectPartcPackage(rawManifest, files);
     }
 
-    // checksums 校验
-    this.verifyChecksums(files);
+    const shape = validateManifestShape(rawManifest);
+    if (!shape.manifest || shape.report.errors.length > 0) {
+      throw new PackageValidationError(
+        shape.report.errors[0]?.code ?? 'PACKAGE_MANIFEST_INVALID',
+        400,
+        firstError(shape.report),
+        shape.report,
+      );
+    }
 
     // 媒体校验
     const mediaWarnings: PackageValidationReport['warnings'] = [];
@@ -177,30 +208,104 @@ export class PackageInspector {
     return { manifest: shape.manifest, files, report };
   }
 
-  private verifyChecksums(files: Map<string, Buffer>): void {
-    const checksum = files.get('checksums.sha256');
-    if (!checksum) return; // 可选：无 checksums 时跳过
-    for (const line of checksum.toString('utf8').split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const match = /^([a-f0-9]{64})\s+\*?(.+)$/i.exec(trimmed);
-      if (!match) continue;
-      const [, hash, rel] = match;
-      const bytes = files.get(rel.replace(/^\.?\//, ''));
-      if (!bytes) {
-        throw new PackageError(
-          'PACKAGE_CHECKSUM_MISMATCH',
-          422,
-          `Checksum references missing file: ${rel}`,
+  /**
+   * Part C v2 包校验：闭合包、模板 v2、媒体签名、编译器 P1–P4。
+   * 只读校验（不落库）：blocking error → PackageValidationError（job FAILED）；
+   * incomplete/warning 只入报告（允许入库、阻止发布，C5 P2）。
+   */
+  private inspectPartcPackage(
+    manifest: PackageManifestV2,
+    files: Map<string, Buffer>,
+  ): {
+    manifest: PackageManifestV2;
+    files: Map<string, Buffer>;
+    report: PackageValidationReport;
+  } {
+    try {
+      const templatePath = templateResourcePathOf(manifest);
+      const templateBytes = files.get(templatePath);
+      if (!templateBytes) {
+        throw new PartCError(
+          'PACKAGE_FILE_MISSING',
+          'manifest.resources declares a template that is missing from the package',
+          { path: templatePath },
         );
       }
-      if (CourseStorageService.sha256(bytes) !== hash.toLowerCase()) {
-        throw new PackageError(
-          'PACKAGE_CHECKSUM_MISMATCH',
+      const mediaKinds = new Set([
+        'cover',
+        'video',
+        'audio',
+        'image',
+        'model3d',
+        'thumbnail',
+      ]);
+      for (const resource of manifest.resources) {
+        const bytes = files.get(resource.path);
+        if (!bytes) {
+          throw new PartCError(
+            'PACKAGE_FILE_MISSING',
+            'manifest.resources declares a file that is missing from the package',
+            { path: resource.path, id: resource.id, kind: resource.kind },
+          );
+        }
+        if (!mediaKinds.has(resource.kind)) continue;
+        try {
+          validateMediaFile(
+            {
+              name: resource.path.split('/').pop() ?? resource.path,
+              bytes,
+            },
+            this.config,
+          );
+        } catch (error) {
+          throw new PackageError(
+            'PACKAGE_MEDIA_INVALID',
+            422,
+            `${resource.path}: ${error instanceof MediaValidationError ? error.message : 'invalid media'}`,
+          );
+        }
+      }
+      const workbook = decodeTemplateWorkbook(templateBytes);
+      const compiled = compilePartcPackage({
+        manifest,
+        files: files,
+        workbook,
+      });
+      const report = reportFromIssues(compiled.issues);
+      return {
+        manifest,
+        files,
+        report: {
+          ...report,
+          details: {
+            contract: 'partc-v2',
+            courseKey: String(manifest.course.courseKey),
+            lessonCount: new Set(
+              compiled.rows.lessons.map((row) => row.value.lesson_code),
+            ).size,
+            mediaCount: compiled.rows.media.length,
+          },
+        },
+      };
+    } catch (error) {
+      if (error instanceof PartcCompileError) {
+        throw new PackageValidationError(
+          error.code,
           422,
-          `Checksum mismatch: ${rel}`,
+          error.message,
+          error.report,
         );
       }
+      if (error instanceof PartCError) {
+        const report = reportFromPartCError(error);
+        throw new PackageValidationError(
+          error.code,
+          422,
+          error.message,
+          report,
+        );
+      }
+      throw error;
     }
   }
 }

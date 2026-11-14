@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Header,
   NotFoundException,
   Param,
   Query,
@@ -28,6 +29,13 @@ export class PortalCoursesController {
   @Get('courses')
   list(@Query('limit') limit?: string) {
     return this.projection.listCourses(limit ? Number(limit) : undefined);
+  }
+
+  /** C1：分类树（只含 ACTIVE；契约不暴露 UUID；缓存 60s）。 */
+  @Get('categories')
+  @Header('Cache-Control', 'private, max-age=60')
+  categories() {
+    return this.projection.listCategoryTree();
   }
 
   @Get('courses/:id')

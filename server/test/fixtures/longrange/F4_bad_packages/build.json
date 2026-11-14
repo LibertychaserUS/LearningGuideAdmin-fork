@@ -1,0 +1,217 @@
+{
+  "baseline": {
+    "durationMs": 10016,
+    "manifest": {
+      "format": "lg-course-package",
+      "formatVersion": 2,
+      "packageId": "pkg_bad_baseline_v1",
+      "exportedAt": "2026-11-13T00:00:00Z",
+      "minReaderVersion": 2,
+      "extensionsUsed": [],
+      "extensionsRequired": [],
+      "course": {
+        "courseKey": "bad-baseline",
+        "titleLocalized": {
+          "en-GB": {
+            "title": "Bad baseline"
+          }
+        },
+        "categoryPath": [
+          "Science"
+        ],
+        "learningLanguages": [
+          "en-GB"
+        ],
+        "studyMode": "video"
+      },
+      "content": {
+        "courseKey": "bad-baseline",
+        "versionNo": 1,
+        "categoryPath": [
+          "Science"
+        ],
+        "stages": [
+          {
+            "courseKey": "bad-baseline",
+            "stageKey": "program-bad-baseline",
+            "parentStageKey": null,
+            "orderKey": "000001",
+            "kind": "program",
+            "goal": "Bad baseline",
+            "objectiveKeys": [],
+            "exitEvidence": [],
+            "exitRollup": {
+              "kind": "all"
+            },
+            "status": "active"
+          },
+          {
+            "courseKey": "bad-baseline",
+            "stageKey": "lesson-bl1",
+            "parentStageKey": "program-bad-baseline",
+            "orderKey": "000001.000001",
+            "kind": "step",
+            "goal": "Baseline lesson",
+            "objectiveKeys": [
+              "obj-bl1"
+            ],
+            "exitEvidence": [
+              "ev-bl1"
+            ],
+            "exitRollup": {
+              "kind": "all"
+            },
+            "status": "active"
+          }
+        ],
+        "prerequisiteEdges": [],
+        "specPins": [
+          {
+            "contentKey": "BL1",
+            "version": 1
+          }
+        ],
+        "renditions": [],
+        "alignments": [],
+        "evidenceSpecs": [
+          {
+            "evidenceKey": "ev-bl1",
+            "version": 1,
+            "kind": "artifact",
+            "objectiveKeys": [
+              "obj-bl1"
+            ],
+            "measure": {
+              "kind": "artifact",
+              "instructions": "Complete the baseline artefact."
+            },
+            "scoring": "pass-fail",
+            "threshold": 1,
+            "attempts": 1
+          }
+        ],
+        "assetPins": [
+          {
+            "assetKey": "bad-cover",
+            "assetVersion": 1
+          },
+          {
+            "assetKey": "bad-video",
+            "assetVersion": 1
+          },
+          {
+            "assetKey": "bad-sub",
+            "assetVersion": 1
+          }
+        ]
+      },
+      "resources": [
+        {
+          "id": "template",
+          "kind": "template",
+          "path": "template.xlsx",
+          "size": 26094
+        },
+        {
+          "id": "bad-cover",
+          "kind": "cover",
+          "path": "media/cover.png",
+          "size": 6618
+        },
+        {
+          "id": "bad-video",
+          "kind": "video",
+          "path": "media/bad-video.mp4",
+          "size": 166528
+        },
+        {
+          "id": "bad-sub",
+          "kind": "subtitle",
+          "path": "subtitles/BL1.en-GB.srt",
+          "size": 107
+        }
+      ],
+      "provenance": {
+        "sourceEnv": "sandbox",
+        "sourceVersionLabel": "1.0",
+        "exportedAt": "2026-11-13T00:00:00Z",
+        "exportedBy": "fixtures@example.com",
+        "courseKey": "bad-baseline",
+        "planPin": {
+          "planId": "plan/bad-baseline/content-v1/target-default/v1",
+          "planVersion": 1
+        },
+        "approvalRef": "APPROVED-BAD-1",
+        "auditSummaryRef": "audit/bad-baseline/v1.json"
+      },
+      "annotations": {
+        "generatedBy": "longrange-fixture-builder"
+      }
+    }
+  },
+  "cases": [
+    {
+      "case": "01-missing-manifest-field",
+      "defect": "missing-manifest-field",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/01-missing-manifest-field.zip",
+      "zipSize": 142968,
+      "expectedError": "missing-manifest-field"
+    },
+    {
+      "case": "02-unknown-file",
+      "defect": "unknown-file",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/02-unknown-file.zip",
+      "zipSize": 143110,
+      "expectedError": "unknown-file"
+    },
+    {
+      "case": "03-version-missing",
+      "defect": "version-missing",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/03-version-missing.zip",
+      "zipSize": 142989,
+      "expectedError": "version-missing"
+    },
+    {
+      "case": "04-duplicate-truth-key",
+      "defect": "duplicate-truth-key",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/04-duplicate-truth-key.zip",
+      "zipSize": 143019,
+      "expectedError": "duplicate-truth-key"
+    },
+    {
+      "case": "05-out-of-range-time",
+      "defect": "out-of-range-time",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/05-out-of-range-time.zip",
+      "zipSize": 143002,
+      "expectedError": "out-of-range-time"
+    },
+    {
+      "case": "06-unknown-code",
+      "defect": "unknown-code",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/06-unknown-code.zip",
+      "zipSize": 143016,
+      "expectedError": "unknown-code"
+    },
+    {
+      "case": "07-missing-language",
+      "defect": "missing-language",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/07-missing-language.zip",
+      "zipSize": 142989,
+      "expectedError": "missing-language"
+    },
+    {
+      "case": "08-illegal-media-type",
+      "defect": "illegal-media-type",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/08-illegal-media-type.zip",
+      "zipSize": 143000,
+      "expectedError": "illegal-media-type"
+    },
+    {
+      "case": "09-zip-path-traversal",
+      "defect": "zip-path-traversal",
+      "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F4_bad_packages/09-zip-path-traversal.zip",
+      "zipSize": 143099,
+      "expectedError": "zip-path-traversal"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Generated fixture payloads (large real media / derived packages).
+# The source of truth is the Owner-supplied real zip referenced by
+# scripts/fixture_common.py; `python3 -I scripts/build_all.py` regenerates
+# every ignored path. Scripts, data/, README and the small evidence JSON
+# (inventory/ffprobe/build) stay tracked so fixtures remain reproducible.
+F1/package/
+F2_subtitles/package/
+F2_subtitles/alternates/
+F2_subtitles/*.zip
+F3_chapters/package/
+F3_chapters/*.zip
+F5_replacement/package/
+F5_replacement/*.zip
+F4_bad_packages/_baseline/
+F4_bad_packages/*/
+F4_bad_packages/*.zip
+F6_export_roundtrip/
+.smoke/

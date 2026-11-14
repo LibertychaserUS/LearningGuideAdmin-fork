@@ -87,6 +87,6 @@ npm run dev              # http://localhost:5173
 二选一：
 
 - **本机 PostgreSQL 16**（Windows 服务名 `postgresql-x64-16`），账号/密码均为 admin，库名 learning_guide_db；
-- **Docker 一键起库**：`docker compose up -d postgres`（镜像 `postgres:16`，默认 admin/admin@localhost:5432；若 5432 被占用可 `POSTGRES_PORT=5433 docker compose up -d postgres`）。
+- **Docker 一键起库**：`docker compose up -d postgres`（镜像 `pgvector/pgvector:pg16`，默认 admin/admin@localhost:5432；若 5432 被占用可 `POSTGRES_PORT=5433 docker compose up -d postgres`）。
 
 连接串存于 `server/.env`（不入库），模板见 `server/.env.example`。表结构变更只走 Prisma Migrate，禁止手改数据库。

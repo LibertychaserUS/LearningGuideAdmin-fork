@@ -26,10 +26,15 @@ import { EnvironmentController } from './environment.controller';
 import { CourseAuthoringService } from './course-authoring.service';
 import { MediaUploadService } from './media-upload.service';
 import { DraftRevisionInterceptor } from './draft-revision';
+import { CourseCapabilityGuard } from './course-capability.guard';
+import { PartcAdminController } from '../partc/api/partc-admin.controller';
+import { PartcAdminService } from '../partc/api/partc-admin.service';
+import { PartcAdminRepository } from '../partc/api/partc-admin.repository';
 
 /**
  * 商品课程 v2（Commerce Course）：课程管理、课程包导入/导出、Portal v1 投影。
  * P1b：Draft → Publish → Version、History、Operations、Stripe、学员预览。
+ * Part C 管理端（阶段树/证据规格/plan 生命周期）挂在 courses/:courseKey/partc。
  */
 @Module({
   controllers: [
@@ -37,6 +42,7 @@ import { DraftRevisionInterceptor } from './draft-revision';
     PortalCoursesController,
     OperationsController,
     EnvironmentController,
+    PartcAdminController,
   ],
   providers: [
     {
@@ -67,6 +73,9 @@ import { DraftRevisionInterceptor } from './draft-revision';
     MediaUploadService,
     PortalProjectionService,
     PortalPreviewService,
+    CourseCapabilityGuard,
+    PartcAdminRepository,
+    PartcAdminService,
   ],
 })
 export class CommerceCoursesModule {}

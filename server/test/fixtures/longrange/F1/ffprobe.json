@@ -1,0 +1,30 @@
+[
+  {
+    "path": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F1/package/Modeling life内容文件/Lesson 1视频课件.mp4",
+    "name": "Lesson 1视频课件.mp4",
+    "size": 139718382,
+    "durationMs": 1469312,
+    "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+    "videoStreams": 1,
+    "audioStreams": 1,
+    "videoCodec": "h264",
+    "width": 1920,
+    "height": 1080,
+    "chapters": 0,
+    "subtitleStreams": 0
+  },
+  {
+    "path": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F1/package/Modeling life内容文件/Lesson 2视频课件.mp4",
+    "name": "Lesson 2视频课件.mp4",
+    "size": 21124683,
+    "durationMs": 1584263,
+    "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+    "videoStreams": 1,
+    "audioStreams": 1,
+    "videoCodec": "h264",
+    "width": 960,
+    "height": 544,
+    "chapters": 0,
+    "subtitleStreams": 0
+  }
+]

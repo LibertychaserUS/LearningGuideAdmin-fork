@@ -113,7 +113,10 @@ export interface CourseSnapshot {
   media: SnapshotMediaRef[];
 }
 
-export function buildCourseSnapshot(agg: CourseAggregate): CourseSnapshot {
+export function buildCourseSnapshot(
+  agg: CourseAggregate,
+  categoryPath?: string[] | null,
+): CourseSnapshot {
   const media: SnapshotMediaRef[] = [];
   const addMedia = (
     path: string,
@@ -157,7 +160,9 @@ export function buildCourseSnapshot(agg: CourseAggregate): CourseSnapshot {
                   .filter((lp) => lp.source === 'VIDEO')
                   .map((lp) => ({
                     code: lp.code,
-                    timeSeconds: lp.timeSeconds ?? 0,
+                    // C7：无时间源不写 0（0 会被当成真实起点伪造时间）；
+                    // 显式 null 表示“本环境没有可派生的机器时间源”。
+                    timeSeconds: lp.timeSeconds ?? null,
                     title: lp.title,
                   })),
                 exhibitTriggers: lesson.triggers
@@ -275,7 +280,15 @@ export function buildCourseSnapshot(agg: CourseAggregate): CourseSnapshot {
   const course: PackageCourse = {
     code: agg.code,
     slug: agg.slug,
-    category: agg.category?.name ?? agg.legacyCategory ?? 'Uncategorized',
+    // C6：稳定键路径（完整父链；二级分类不丢末级）。未分类 → null。
+    // 禁止任何占位分类（M5）。调用方未提供路径时回退到单级 name 仅为兼容
+    // 旧调用方；导出路径一律传入 categoryPathForId 的完整序列。
+    categoryPath:
+      categoryPath !== undefined
+        ? categoryPath
+        : agg.category
+          ? [agg.category.name]
+          : null,
     learningMode: agg.learningMode,
     learningLanguages: (agg.learningLanguages as string[]) ?? [
       agg.defaultContentLanguage,

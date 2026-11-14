@@ -262,6 +262,7 @@ export class CourseAuthoringService {
       data: {
         coverAssetId: asset.id,
         hasDraft: true,
+        draftRevision: { increment: 1 },
         lifecycleStatus: 'WORKING',
       },
     });
@@ -272,7 +273,12 @@ export class CourseAuthoringService {
     await this.assertCourse(courseId);
     await this.prisma.commerceCourse.update({
       where: { id: courseId },
-      data: { coverAssetId: null, hasDraft: true, lifecycleStatus: 'WORKING' },
+      data: {
+        coverAssetId: null,
+        hasDraft: true,
+        draftRevision: { increment: 1 },
+        lifecycleStatus: 'WORKING',
+      },
     });
     return { deleted: true };
   }
@@ -378,7 +384,11 @@ export class CourseAuthoringService {
       }
       await tx.commerceCourse.update({
         where: { id: courseId },
-        data: { hasDraft: true, lifecycleStatus: 'WORKING' },
+        data: {
+          hasDraft: true,
+          draftRevision: { increment: 1 },
+          lifecycleStatus: 'WORKING',
+        },
       });
     });
     return { points };
@@ -420,7 +430,11 @@ export class CourseAuthoringService {
       }
       await tx.commerceCourse.update({
         where: { id: courseId },
-        data: { hasDraft: true, lifecycleStatus: 'WORKING' },
+        data: {
+          hasDraft: true,
+          draftRevision: { increment: 1 },
+          lifecycleStatus: 'WORKING',
+        },
       });
     });
     return { triggers: rows.length };
@@ -588,7 +602,11 @@ export class CourseAuthoringService {
       }
       await tx.commerceCourse.update({
         where: { id: courseId },
-        data: { hasDraft: true, lifecycleStatus: 'WORKING' },
+        data: {
+          hasDraft: true,
+          draftRevision: { increment: 1 },
+          lifecycleStatus: 'WORKING',
+        },
       });
     });
     return { count: data.length };
@@ -625,7 +643,11 @@ export class CourseAuthoringService {
       }
       await tx.commerceCourse.update({
         where: { id: courseId },
-        data: { hasDraft: true, lifecycleStatus: 'WORKING' },
+        data: {
+          hasDraft: true,
+          draftRevision: { increment: 1 },
+          lifecycleStatus: 'WORKING',
+        },
       });
     });
     return { count: enabled ? rows.length : 0 };
@@ -946,6 +968,7 @@ export class CourseAuthoringService {
       where: { id: courseId },
       data: {
         hasDraft: true,
+        draftRevision: { increment: 1 },
         lifecycleStatus: 'WORKING',
         draftSourceType: null,
         draftSourceEnvironment: null,

@@ -1,0 +1,35 @@
+@startuml
+title 状态机 · 草稿/发布状态 与 分类生命周期
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+
+state "课程草稿状态（C9，显式状态替代指纹）" as DraftState {
+  state "No draft\n(draftRevision == liveBaseRevision)" as NODRAFT
+  state "Draft\n(draftRevision > liveBaseRevision)" as DRAFT
+  [*] --> NODRAFT : 新建课程
+  NODRAFT --> DRAFT : Save 草稿内容
+  DRAFT --> DRAFT : 继续编辑 / 导入课程包 / Restore 旧版本\n（包括改回相同内容——显式状态）
+  DRAFT --> NODRAFT : Publish（生成新版本）
+  DRAFT --> NODRAFT : Delete draft\n（恢复为线上版本内容）
+  DRAFT --> NODRAFT : Restore 线上版本
+}
+
+state "分类生命周期（I6）" as CatLife {
+  state "ACTIVE" as ACTIVE
+  state "ARCHIVED\n（保留历史引用，不可绑定新课程）" as ARCHIVED
+  [*] --> ACTIVE : Seed / 迁移预置
+  ACTIVE --> ARCHIVED : 归档（唯一退场方式）
+}
+
+note right of DRAFT
+  Publish 语义：快照 v3 写入 categoryPath；
+  线上投影 C8 读该快照 ——
+  草稿改分类不泄漏，发布后生效
+end note
+note right of ARCHIVED
+  导入只匹配 ACTIVE；
+  课程绑定 ARCHIVED → CATEGORY_ARCHIVED；
+  无删除端点（FK SET NULL 仅作 DB 兜底）
+end note
+@enduml

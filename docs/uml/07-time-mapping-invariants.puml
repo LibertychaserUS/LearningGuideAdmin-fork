@@ -1,0 +1,55 @@
+@startuml
+title 映射与不变式：树序 ⇒ 区间序；进度 ≠ 测度
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam rectangle {
+  BackgroundColor #FDFDFD
+  BorderColor #4A6FA5
+}
+
+rectangle "视频 A：I_A = [0, D_A = 600000 ms)" #EDF2FA {
+  rectangle "s1\n[0, 120000)" as A1
+  rectangle "s2\n[120000, 300000)" as A2
+  rectangle "s3\n[300000, 540000)" as A3
+  rectangle "（未映射余量）\n[540000, 600000)" as A4
+  A1 -right-> A2 : end ≤ start'
+  A2 -right-> A3 : end ≤ start'
+  A3 -right-> A4
+}
+
+rectangle "文档 C：位置格（非时间）" #F6F0E8 {
+  rectangle "H1: s1 标题" as C1
+  rectangle "H1: s2 标题" as C2
+  rectangle "H1: s3 标题" as C3
+  C1 -down-> C2
+  C2 -down-> C3
+}
+
+note right of A3
+  不变式：
+  (1) 0 ≤ start_s < end_s ≤ D_A
+  (2) s ≺ s'（同一 rendition 内）⇒ end_s ≤ start_s'
+  (3) s ≺ s'（树序）⇔ χ(s) 在文档序中是 χ(s') 的前驱
+  (4) 时间只属于 φ 的像；不存在课程级时间变量
+end note
+
+rectangle "学习者状态" as L {
+  rectangle "(s, x)\ns ∈ 𝕊：底空间点（身份）\nx ∈ 当前 rendition 的局部坐标" as STATE
+}
+note right of STATE
+  模式切换：保持 s，只换坐标卡
+  (s, x_video) → (s, x_text)
+  进度 = 𝕊 上的完成布尔（按阶段/单元），
+  不是对时间区间取测度 μ；
+  μ(I_A) = D_A 只是媒体属性，不进入进度。
+end note
+
+rectangle "事件域（wall-clock，独立）" #EFEFEF {
+  rectangle "e = (user, s, type, τ_client, τ_server)" as EV
+}
+note right of EV
+  事件时间 τ ∈ ℝ（UTC）只用于
+  排序/统计/审计，与内容坐标无映射关系。
+end note
+@enduml

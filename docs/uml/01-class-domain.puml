@@ -1,0 +1,114 @@
+@startuml
+title 课程分类单一来源 · 领域类图（Admin 真源 + Portal 只读）
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam class {
+  BackgroundColor #FDFDFD
+  BorderColor #4A6FA5
+  ArrowColor #4A6FA5
+}
+skinparam packageStyle rectangle
+
+package "Admin（唯一写方 / 真源）" #EDF2FA {
+  class CourseCatalogueEntry <<aggregate root>> {
+    + id : string  «环境本地存储编号»
+    + name : string  «稳定键，同父下 lower(name) 唯一»
+    + localized : Localized  «通用多语言模板»
+    + parentId : string?  «NULL=一级；深度 ≤ 2»
+    + sortOrder : int
+    + status : CatalogueStatus
+    .. 不变式 ..
+    I1 一级: lower(name) 部分唯一索引
+    I2 子级: (parentId, lower(name)) 唯一
+    I3 深度 ≤ 2（服务层校验）
+    I4 禁止自指与环
+  }
+  enum CatalogueStatus {
+    ACTIVE
+    ARCHIVED  «退场唯一方式，无删除»
+  }
+  class Localized <<template>> {
+    + "en-GB" : { name?, description? }
+    + "zh-CN" : { name?, description? }
+  }
+  class CommerceCourse {
+    + id : string
+    + code : string  «C001，跨环境不变»
+    + slug : string
+    + categoryId : string?  «必须 ACTIVE，层级 1/2»
+    + legacyCategory : string  «只读遗留，不再写入»
+    + draftRevision : int  «每次草稿写入 +1»
+    + liveBaseRevision : int  «发布时快照»
+    + 无草稿 ⇔ draftRevision == liveBaseRevision
+  }
+  class CourseVersion <<snapshot>> {
+    + id : string
+    + versionLabel : string
+    + snapshotData : SnapshotV3
+  }
+  class SnapshotV3 {
+    + course.categoryPath : string[] | null
+    «只带稳定键，无 UUID»
+  }
+}
+
+package "Portal（只读消费）" #F6F0E8 {
+  class ProductCourse {
+    + id : string
+    + slug : string
+    + category : string  «legacy 字符串，过渡期»
+    + categoryId : string?  «过渡期引用旧目录»
+  }
+  class CategoryResolver <<single seam>> {
+    + resolve(course) : CategoryRef | null
+    «全站唯一分类归属口径；未分类 → null»
+  }
+  class CategoryRef {
+    + name : string  «稳定键»
+    + localized : Localized
+  }
+  class AdminCatalogueClient {
+    + fetchCategories() : CategoryNode[]
+    «X-API-Key，超时 ≤3s»
+  }
+  class AdminCatalogueCache {
+    + get() : CategoryNode[]
+    «TTL 60s · single-flight · 退避 15s · last-good · 冷启动回退种子表»
+  }
+  class ProductPlan {
+    + scopeId : string  «分类稳定键»
+  }
+  class ProductEntitlement {
+    + scopeId : string
+  }
+  class SubscriptionScope <<value object>> {
+    + type : 'category' | 'course' | 'everything'
+    + key : string
+  }
+}
+
+CourseCatalogueEntry "0..1 parent" o-- "0..* children" CourseCatalogueEntry : parent/children
+CourseCatalogueEntry "0..1" <-- "0..*" CommerceCourse : categoryId（仅 ACTIVE）
+CommerceCourse "1" --> "0..*" CourseVersion : publish 生成
+CourseVersion *-- SnapshotV3
+CourseCatalogueEntry .. Localized : 显示名
+
+ProductCourse ..> CategoryResolver : 解析归属
+ProductPlan ..> SubscriptionScope
+ProductEntitlement ..> SubscriptionScope
+CategoryResolver ..> AdminCatalogueCache : 读目录
+AdminCatalogueCache ..> AdminCatalogueClient : 未命中
+AdminCatalogueClient ..> CourseCatalogueEntry : C1 GET /api/portal/v1/categories
+
+note bottom of CategoryResolver
+  覆盖判断：resolved(course).name == scope.key
+  「全部分类」= 覆盖目录中全部 ACTIVE，不再用数量 ≥ 3
+end note
+
+note bottom of SnapshotV3
+  快照 / 课程包 / 指纹输入只出现稳定键；
+  C8 线上投影读线上版本快照，草稿改分类不泄漏
+end note
+@enduml

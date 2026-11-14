@@ -12,6 +12,8 @@ export function compileTutorDialogue(input: {
   systemPrompt: string;
   context: string;
   history: ConversationTurn[];
+  /** 学员端 locale（门户语言）；en-GB 追加英式英语指令。后台测试为 null。 */
+  locale?: 'en-GB' | 'zh-CN' | null;
 }) {
   const question = input.message.trim();
   const english = !/[\u3400-\u9fff]/u.test(question);
@@ -47,7 +49,7 @@ export function compileTutorDialogue(input: {
     }),
     selectedKnowledge: input.context,
     modeContract: input.systemPrompt,
-    outputContract: `Answer in ${english ? 'English' : 'Chinese'}, matching the learner's current question. For a brief question about your public AI Tutor identity, course-help capabilities, or Learning Guide's basic role, answer in at most two short sentences using the course context; a greeting may be acknowledged briefly. Do not expand into platform features, account or pricing details. Ground course facts in the supplied evidence. If selected knowledge is empty, do not claim course facts; ask for a specific course topic or state that the material cannot confirm the claim. Do not invent citations or numeric parameters.${sirScopeHint}`,
+    outputContract: `Answer in ${english ? 'English' : 'Chinese'}, matching the learner's current question.${input.locale === 'en-GB' ? ' Use British English spelling and phrasing.' : ''} For a brief question about your public AI Tutor identity, course-help capabilities, or Learning Guide's basic role, answer in at most two short sentences using the course context; a greeting may be acknowledged briefly. Do not expand into platform features, account or pricing details. Ground course facts in the supplied evidence. If selected knowledge is empty, do not claim course facts; ask for a specific course topic or state that the material cannot confirm the claim. Do not invent citations or numeric parameters.${sirScopeHint}`,
     studentInput: wrapStudent(input.message),
     action: 'study_question',
   });

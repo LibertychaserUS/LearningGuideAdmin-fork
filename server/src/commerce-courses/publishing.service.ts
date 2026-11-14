@@ -24,7 +24,7 @@ import {
   type VersionSnapshot,
 } from './version-snapshot';
 import { TrialService } from './trial.service';
-import { snapshotContentHash, versionContentHash } from './content-hash';
+import { snapshotContentHash } from './content-hash';
 
 export interface VersionLabelResult {
   label: string;
@@ -142,7 +142,8 @@ export class PublishingService {
         code: true,
         liveVersionId: true,
         liveStatus: true,
-        hasDraft: true,
+        draftRevision: true,
+        liveBaseRevision: true,
         draftSourceType: true,
         draftSourceEnvironment: true,
         draftSourceVersionLabel: true,
@@ -160,7 +161,8 @@ export class PublishingService {
         message: 'Archived course cannot be published',
       });
     }
-    if (!course.hasDraft) {
+    // C9/O1：No draft ⇔ draftRevision == liveBaseRevision（不再比较内容哈希）。
+    if (course.draftRevision === course.liveBaseRevision) {
       throw new ConflictException({
         code: 'NO_DRAFT',
         message: 'There is no draft to publish.',
@@ -182,35 +184,23 @@ export class PublishingService {
     const version = await this.prisma.$transaction(
       async (tx) => {
         const [locked] = await tx.$queryRaw<
-          { hasDraft: boolean; liveVersionId: string | null }[]
+          {
+            draftRevision: number;
+            liveBaseRevision: number;
+            liveVersionId: string | null;
+          }[]
         >`
-          SELECT "hasDraft", "liveVersionId" FROM "CommerceCourse"
-          WHERE id = ${courseId} FOR UPDATE`;
-        if (!locked?.hasDraft) {
+          SELECT "draftRevision", "liveBaseRevision", "liveVersionId"
+          FROM "CommerceCourse" WHERE id = ${courseId} FOR UPDATE`;
+        if (!locked || locked.draftRevision === locked.liveBaseRevision) {
           throw new ConflictException({
             code: 'NO_DRAFT',
             message: 'There is no draft to publish.',
           });
         }
         const snapshot = await captureVersionSnapshot(tx, courseId);
+        // 仅供排查的诊断指纹；不参与 No draft/版本身份（C9/C0 红线）。
         const contentHash = await snapshotContentHash(tx, snapshot);
-        // 草稿改回了线上内容（PRD §15.1）：清掉草稿标记，不生成重复版本。
-        if (
-          locked.liveVersionId &&
-          (await versionContentHash(tx, locked.liveVersionId)) === contentHash
-        ) {
-          await tx.commerceCourse.update({
-            where: { id: courseId },
-            data: {
-              hasDraft: false,
-              lifecycleStatus: 'LIVE',
-              draftSourceType: null,
-              draftSourceEnvironment: null,
-              draftSourceVersionLabel: null,
-            },
-          });
-          return null;
-        }
         const last = await tx.courseVersion.findFirst({
           where: { courseId },
           orderBy: { versionNo: 'desc' },
@@ -248,6 +238,8 @@ export class PublishingService {
             liveStatus: course.liveVersionId ? course.liveStatus : 'OFFLINE',
             lifecycleStatus: 'LIVE',
             hasDraft: false,
+            // C9：发布时冻结草稿基线 → No draft。
+            liveBaseRevision: locked.draftRevision,
             draftSourceType: null,
             draftSourceEnvironment: null,
             draftSourceVersionLabel: null,
@@ -271,12 +263,6 @@ export class PublishingService {
       },
       { timeout: 30_000 },
     );
-    if (!version) {
-      throw new ConflictException({
-        code: 'NO_DRAFT',
-        message: 'The draft is the same as the live version.',
-      });
-    }
 
     return {
       versionId: version.id,
@@ -314,16 +300,23 @@ export class PublishingService {
     return this.prisma.$transaction(
       async (tx) => {
         const [course] = await tx.$queryRaw<
-          { liveVersionId: string | null; hasDraft: boolean }[]
+          {
+            liveVersionId: string | null;
+            draftRevision: number;
+            liveBaseRevision: number;
+          }[]
         >`
-          SELECT "liveVersionId", "hasDraft" FROM "CommerceCourse"
-          WHERE id = ${courseId} FOR UPDATE`;
+          SELECT "liveVersionId", "draftRevision", "liveBaseRevision"
+          FROM "CommerceCourse" WHERE id = ${courseId} FOR UPDATE`;
         if (!course)
           throw new NotFoundException({
             code: 'COURSE_NOT_FOUND',
             message: 'Course not found',
           });
-        if (!course.liveVersionId || !course.hasDraft) {
+        if (
+          !course.liveVersionId ||
+          course.draftRevision === course.liveBaseRevision
+        ) {
           throw new ConflictException({
             code: 'NO_DRAFT',
             message: 'There is no draft to delete. Publish a version first.',
@@ -353,6 +346,8 @@ export class PublishingService {
           where: { id: courseId },
           data: {
             hasDraft: false,
+            // C9：草稿丢弃后回到线上基线（No draft）。
+            draftRevision: course.liveBaseRevision,
             lifecycleStatus: 'LIVE',
             draftSourceType: null,
             draftSourceEnvironment: null,
@@ -390,25 +385,44 @@ export class PublishingService {
       });
     }
     // 标记草稿、写快照、记历史在同一事务里：中途失败不会留下"有草稿但内容没恢复"的半成品。
-    await this.prisma.$transaction(
+    const hasDraft = await this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw`
-          SELECT id FROM "CommerceCourse" WHERE id = ${courseId} FOR UPDATE`;
-        await tx.commerceCourse.update({
-          where: { id: courseId },
-          data: {
-            hasDraft: true,
-            lifecycleStatus: 'WORKING',
-            draftSourceType: 'RESTORE',
-            draftSourceEnvironment: null,
-            draftSourceVersionLabel: version.versionLabel,
-          },
-        });
+        const [locked] = await tx.$queryRaw<
+          {
+            liveVersionId: string | null;
+            draftRevision: number;
+            liveBaseRevision: number;
+          }[]
+        >`
+          SELECT "liveVersionId", "draftRevision", "liveBaseRevision"
+          FROM "CommerceCourse" WHERE id = ${courseId} FOR UPDATE`;
+        if (!locked)
+          throw new NotFoundException({
+            code: 'COURSE_NOT_FOUND',
+            message: 'Course not found',
+          });
+        // C7：快照的分类解析失败会在写入任何内容前抛出 CATEGORY_NOT_FOUND。
         await applyVersionSnapshotInTx(
           tx,
           courseId,
           version.snapshotData as unknown as VersionSnapshot,
         );
+        // C9：Restore 线上版本 → No draft；Restore 旧版本 → 有草稿。
+        const isLiveVersion = version.id === locked.liveVersionId;
+        const nextDraftRevision = isLiveVersion
+          ? locked.liveBaseRevision
+          : locked.draftRevision + 1;
+        await tx.commerceCourse.update({
+          where: { id: courseId },
+          data: {
+            hasDraft: !isLiveVersion,
+            draftRevision: nextDraftRevision,
+            lifecycleStatus: isLiveVersion ? 'LIVE' : 'WORKING',
+            draftSourceType: 'RESTORE',
+            draftSourceEnvironment: null,
+            draftSourceVersionLabel: version.versionLabel,
+          },
+        });
         await tx.courseAuthoringActivity.create({
           data: {
             courseId,
@@ -418,10 +432,11 @@ export class PublishingService {
             detail: { restoredFrom: version.versionLabel },
           },
         });
+        return !isLiveVersion;
       },
       { timeout: 60_000 },
     );
-    return { restoredFrom: version.versionLabel, hasDraft: true };
+    return { restoredFrom: version.versionLabel, hasDraft };
   }
 
   /** Change status：Online / Hidden / Offline，必须填原因；不生成版本。 */

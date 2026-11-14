@@ -215,7 +215,7 @@ describe('AI API (e2e)', () => {
     await prisma.course.delete({ where: { id: unpublished.id } });
   });
 
-  it('POST /api/ai/chat-stream 携带 history 时拼入多轮上下文（§4.4.1）', async () => {
+  it('POST /api/ai/chat-stream 携带完整 user+assistant history 时拼入多轮上下文（§4.4.1）', async () => {
     lastOpts = null;
     await api
       .post('/api/ai/chat-stream')
@@ -223,13 +223,21 @@ describe('AI API (e2e)', () => {
         courseId,
         message: '继续',
         mode: 'LECTURE',
-        history: [{ role: 'user', content: '上一轮问题' }],
+        // 产品契约（2026-10-29）：selectRecentCompleteTurns 只保留完整且相邻的
+        // user/assistant 轮次（src/ai/tutor/conversation-history.spec.ts:18）。
+        // 孤立的单条 user 消息会被丢弃，故这里发送完整一轮，验证其确实进入上下文。
+        history: [
+          { role: 'user', content: '上一轮问题' },
+          { role: 'assistant', content: '上一轮回答' },
+        ],
       })
       .expect(200);
-    expect(lastOpts!.messages.some((m) => m.content === '上一轮问题')).toBe(
-      true,
-    );
+    // history 不会作为独立 message 下发，而是编入 system 的 FIELD 2
+    // （studentState.recentHistory），学员内容以 [STUDENT_INPUT_BEGIN]/[STUDENT_INPUT_END]
+    // 包裹（src/ai/tutor/dialogue-runtime.ts:31-37、src/ai/prompt-defaults.ts:112-115）。
     const system = lastOpts!.messages[0].content;
+    expect(system).toContain('上一轮问题');
+    expect(system).toContain('上一轮回答');
     expect(system).not.toContain('苏格拉底式的引导者'); // LECTURE 不注入
   });
 
@@ -487,21 +495,26 @@ describe('AI API (e2e)', () => {
       })
       .expect(200);
 
-    // R2：发布快照时沿用当前测试所选版本（R1）的配置（QA 2026-10-27 A3）
+    // R2：发布快照时沿用当前测试所选版本（R1）的 Welcome / Model / apiKey，
+    // 但 System Prompt 不复制（2026-10-29 决策 A：
+    // src/releases/releases.service.ts AI_CONFIG_COPY_FIELDS 明确排除
+    // lectureSystemPrompt / socraticSystemPrompt / assessmentSystemPrompt / mainSystemPrompt，
+    // 避免新 Release 固化旧 md 内容而漂移）。
     const r2: SuccessResponse<Release> = await api
       .post(`/api/courses/${isoCourse.id}/release`)
       .send({ revisionNotes: 'R2' })
       .expect(201);
     const r2Id = r2.body.data.id;
 
-    // 切到 R2 → 回退默认视图
+    // 切到 R2 → System Prompt 不继承，回退模板默认（null），其余课程级字段仍沿用
     const atR2: SuccessResponse<AiConfigView> = await api
       .put(`/api/ai/config/${isoCourse.id}/active-release`)
       .send({ releaseId: r2Id })
       .expect(200);
     expect(atR2.body.data.releaseId).toBe(r2Id);
-    expect(atR2.body.data.lecture.systemPrompt).toBe('ISO-R1-PROMPT');
-    expect(atR2.body.data.hasApiKey).toBe(true);
+    expect(atR2.body.data.lecture.systemPrompt).toBeNull(); // 2026-10-29：新 Release 不继承 System Prompt
+    expect(atR2.body.data.welcomeMsg).toBe('ISO-R1-WELCOME'); // Welcome 仍随 Release 复制
+    expect(atR2.body.data.hasApiKey).toBe(true); // apiKey 仍随 Release 复制
 
     // 此后在 R2 上的修改只写 R2，R1 不受影响（仍按 Release 隔离）
     await api
@@ -567,8 +580,20 @@ describe('AI API (e2e)', () => {
   });
 
   it('后台测试对话不占学员端限流额度（QA 2026-10-27 A2）', async () => {
+    // 前置修正（对齐产品行为，不改实现）：
+    // 1) buildTutorContext 对没有任何可用正文的 Release 直接 400
+    //    （src/ai/tutor/course-context.ts:30-32），因此分桶课须先有 SYNCED 页面再发布；
+    // 2) runtimeFromConfig 在课程级和 OPENROUTER_API_KEY 都缺失时抛错
+    //    （src/ai/ai-config.service.ts runtimeFromConfig），因此须先保存课程级 apiKey，
+    //    否则后台测试请求会在进入限流断言前失败。
     const shared = await prisma.course.create({
-      data: { title: 'AI-E2E限流分桶课', externalId: 'ai-e2e-quota' },
+      data: {
+        title: 'AI-E2E限流分桶课',
+        externalId: 'ai-e2e-quota',
+        pages: {
+          create: [{ title: '页', contentMd: 'QUOTA-CONTENT', sortOrder: 0 }],
+        },
+      },
     });
     const rel: SuccessResponse<Release> = await api
       .post(`/api/courses/${shared.id}/release`)
@@ -578,6 +603,17 @@ describe('AI API (e2e)', () => {
       .post(`/api/courses/${shared.id}/set-live`)
       .send({ releaseId: rel.body.data.id })
       .expect(201);
+    // 课程级配置 apiKey（写入「测试所选 Release」，学员端读的 currentReleaseId 同一版本）
+    await api
+      .put('/api/ai/config')
+      .send({
+        courseId: shared.id,
+        mode: 'LECTURE',
+        llmProvider: 'openrouter',
+        llmModel: 'test/model-a',
+        apiKey: 'sk-quota-test',
+      })
+      .expect(200);
     await prisma.course.update({
       where: { id: shared.id },
       data: { aiTutorOnline: true },

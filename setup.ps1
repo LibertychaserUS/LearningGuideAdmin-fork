@@ -87,7 +87,7 @@ if ($WithDocker) {
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Fail '未检测到 Docker，无法 -WithDocker 启动 PostgreSQL。'
   }
-  Write-Host '使用 Docker Compose 启动 PostgreSQL（postgres:16）...'
+  Write-Host '使用 Docker Compose 启动 PostgreSQL（pgvector/pgvector:pg16）...'
   Push-Location $root
   $env:POSTGRES_PORT = "$DbPort"
   $env:POSTGRES_USER = $DbUser

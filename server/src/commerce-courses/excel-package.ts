@@ -1,7 +1,10 @@
-﻿import { createHash, randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
-import { PACKAGE_FORMAT, PACKAGE_FORMAT_VERSION } from './contracts/manifest';
+import {
+  LEGACY_PACKAGE_FORMAT_VERSION,
+  PACKAGE_FORMAT,
+} from './contracts/manifest';
 import { convertDocxToHtml } from './docx-to-html';
 import { mp4DurationSeconds } from './media-duration';
 import type {
@@ -19,9 +22,14 @@ import type {
 
 const LANG = 'en-GB';
 
-function sha(buf: Buffer): string {
-  return createHash('sha256').update(buf).digest('hex');
-}
+/**
+ * 原始素材 → 课程包的转换（**已退役**，见 contracts/manifest.ts 头注）。
+ *
+ * 产出带显式 legacy 标记（LEGACY_PACKAGE_FORMAT_VERSION），不再声明
+ * formatVersion 2，也不写任何 checksums/摘要清单（C0 红线⑦：全系统不使用
+ * 哈希/摘要做身份）。导入侧对 legacy 标记整体拒绝（PACKAGE_FORMAT_UNSUPPORTED）；
+ * 新内容必须走 Part C v2 模板/课程包。本文件只保留转换函数供历史数据排查。
+ */
 
 function sheetRows(wb: XLSX.WorkBook, name: string): unknown[][] {
   const key = Object.keys(wb.Sheets).find(
@@ -96,7 +104,7 @@ function warnTimesBeyondVideo(
   language: string,
   video: {
     durationSeconds?: number;
-    learningPoints: { timeSeconds: number; title: string }[];
+    learningPoints: { timeSeconds: number | null; title: string }[];
     exhibitTriggers?: { timeSeconds: number; exhibitRef: string }[];
   } | null,
   warnings: string[],
@@ -104,7 +112,7 @@ function warnTimesBeyondVideo(
   const duration = video?.durationSeconds;
   if (!video || !duration) return;
   for (const lp of video.learningPoints)
-    if (lp.timeSeconds > duration)
+    if (lp.timeSeconds !== null && lp.timeSeconds > duration)
       warnings.push(
         `Lesson ${lessonNo} 视频学习点「${lp.title}」时间 ${formatClock(lp.timeSeconds)} 超出视频时长 ${formatClock(duration)}（${language}）`,
       );
@@ -329,14 +337,15 @@ export interface ExcelPackageResult {
 interface RawMedia {
   media: Map<string, Buffer>;
   add: (name: string, bytes: Buffer) => void;
-  checksums: string[];
+  /** 已写入包内的文件数（不含 manifest；无哈希清单）。 */
+  mediaCount: number;
   out: JSZip;
 }
 
 // 已经压缩过的媒体（视频/图片/模型/Office/PDF）再 DEFLATE 一次几乎不缩小，
 // 却会在 1 vCPU 的实例上耗掉大量 CPU 与内存，使 ~150MB 素材包的转换/校验
 // 超时（表现为 App Runner/CloudFront 5xx，前端显示 INTERNAL_ERROR）。
-// 这些文件用 STORE 直接存储，只有 manifest/checksums 等文本仍走 DEFLATE。
+// 这些文件用 STORE 直接存储，只有 manifest 等文本仍走 DEFLATE。
 const ALREADY_COMPRESSED =
   /\.(mp4|mov|webm|m4v|png|jpe?g|gif|webp|mp3|m4a|aac|glb|gltf|obj|pdf|zip|docx|xlsx|pptx)$/i;
 function fileCompression(name: string): 'STORE' | 'DEFLATE' {
@@ -345,12 +354,16 @@ function fileCompression(name: string): 'STORE' | 'DEFLATE' {
 
 function createPackager(): RawMedia {
   const out = new JSZip();
-  const checksums: string[] = [];
-  const add = (name: string, bytes: Buffer) => {
-    out.file(name, bytes, { compression: fileCompression(name) });
-    checksums.push(`${sha(bytes)}  ${name}`);
+  const packager: RawMedia = {
+    media: new Map(),
+    mediaCount: 0,
+    add: (name: string, bytes: Buffer) => {
+      out.file(name, bytes, { compression: fileCompression(name) });
+      packager.mediaCount += 1;
+    },
+    out,
   };
-  return { media: new Map(), add, checksums, out };
+  return packager;
 }
 
 export async function buildPackageFromRawZip(
@@ -647,7 +660,12 @@ async function buildNewTemplatePackage(
     checklist.get('Course title') ||
     'Imported Course';
   const titleZh = info['course title']?.zh;
-  const category = info['category']?.en || 'Uncategorised';
+  // M5/C6：模板分类是稳定键候选；占位词（Uncategorised）绝不进包，未填 → 未分类。
+  const rawCategory = (info['category']?.en ?? '').trim();
+  const categoryPath =
+    rawCategory && !/^uncategori[sz]ed$/i.test(rawCategory)
+      ? [rawCategory]
+      : null;
   // Course ID 必须优先取 Excel Checklist 里的值（SCI001 等）；options.courseCode 只是
   // 「模板里没有 Course ID」时的兜底编号（TEMP001…），绝不能反过来覆盖 Excel 里的真实编号。
   const checklistCourseId = readChecklistValue(checklist, 'Course ID');
@@ -933,7 +951,7 @@ async function buildNewTemplatePackage(
   const course: PackageCourse = {
     code: courseCode,
     slug,
-    category,
+    categoryPath,
     learningMode,
     learningLanguages: languages,
     defaultContentLanguage,
@@ -944,7 +962,8 @@ async function buildNewTemplatePackage(
   };
   const manifest: PackageManifest = {
     format: PACKAGE_FORMAT,
-    formatVersion: PACKAGE_FORMAT_VERSION,
+    // raw 素材导入已退役：显式 legacy 标记，不再冒用 formatVersion 2。
+    formatVersion: LEGACY_PACKAGE_FORMAT_VERSION,
     packageId: `raw-template-${randomUUID()}`,
     exportedAt: new Date().toISOString(),
     source: { environment: 'EXCEL_TEMPLATE', courseCode },
@@ -952,7 +971,6 @@ async function buildNewTemplatePackage(
     course,
   };
   pkg.out.file('manifest.json', JSON.stringify(manifest, null, 2));
-  pkg.out.file('checksums.sha256', pkg.checksums.join('\n'));
   const bytes = await pkg.out.generateAsync({
     type: 'nodebuffer',
     compression: 'DEFLATE',
@@ -963,7 +981,7 @@ async function buildNewTemplatePackage(
     slug,
     title: titleEn,
     lessonCount: pkgLessons.length,
-    mediaCount: pkg.checksums.length,
+    mediaCount: pkg.mediaCount,
     warnings,
   };
 }
@@ -1048,7 +1066,12 @@ async function buildLegacyPackage(
   const pkg = createPackager();
   const info = parseCourseInfo(sheetRows(wb, 'course info'));
   const title = info.get('课程标题') || 'Imported Course';
-  const category = info.get('课程分类') || 'Uncategorised';
+  // M5/C6：占位词不进入 categoryPath；未填 → 未分类（不造分类）。
+  const rawCategoryZh = (info.get('课程分类') || '').trim();
+  const categoryPath =
+    rawCategoryZh && !/^uncategori[sz]ed$/i.test(rawCategoryZh)
+      ? [rawCategoryZh]
+      : null;
   const shortDescription = info.get('课程简述') || '';
   const overview = info.get('overview') || '';
   const whatYouLearn = numberedLines(info.get("what you'll learn") || '');
@@ -1217,7 +1240,7 @@ async function buildLegacyPackage(
   const course: PackageCourse = {
     code: courseCode,
     slug,
-    category,
+    categoryPath,
     learningMode: 'VIDEO_AND_TEXT',
     learningLanguages: [LANG],
     defaultContentLanguage: LANG,
@@ -1230,7 +1253,8 @@ async function buildLegacyPackage(
   };
   const manifest: PackageManifest = {
     format: PACKAGE_FORMAT,
-    formatVersion: PACKAGE_FORMAT_VERSION,
+    // raw 素材导入已退役：显式 legacy 标记，不再冒用 formatVersion 2。
+    formatVersion: LEGACY_PACKAGE_FORMAT_VERSION,
     packageId: `raw-excel-${randomUUID()}`,
     exportedAt: new Date().toISOString(),
     source: { environment: 'EXCEL_IMPORT', courseCode },
@@ -1238,7 +1262,6 @@ async function buildLegacyPackage(
     course,
   };
   pkg.out.file('manifest.json', JSON.stringify(manifest, null, 2));
-  pkg.out.file('checksums.sha256', pkg.checksums.join('\n'));
   const bytes = await pkg.out.generateAsync({
     type: 'nodebuffer',
     compression: 'DEFLATE',
@@ -1249,7 +1272,7 @@ async function buildLegacyPackage(
     slug,
     title,
     lessonCount: pkgLessons.length,
-    mediaCount: pkg.checksums.length,
+    mediaCount: pkg.mediaCount,
     warnings,
   };
 }

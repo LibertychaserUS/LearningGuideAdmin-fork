@@ -1,0 +1,48 @@
+@startuml
+title 时序 · Portal 读分类（缓存 / 单飞 / 降级）
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam sequenceMessageAlign center
+autonumber
+
+participant "页面/展示面" as UI
+participant "CategoryResolver" as RES
+participant "adminCatalogueCache" as CACHE
+participant "adminCatalogueClient" as CLIENT
+participant "Admin API\nC1 /api/portal/v1/categories" as API
+participant "内置种子表" as SEED
+
+UI -> RES : resolve(course)
+RES -> CACHE : get()
+alt 缓存命中（TTL 60s 内）
+  CACHE --> RES : 分类树（内存）
+else 未命中且无在途请求
+  CACHE -> CLIENT : fetchCategories()
+  CLIENT -> API : GET（X-API-Key，≤3s 超时）
+  alt Admin 正常
+    API --> CLIENT : {success:true,data:[node…]}
+    CLIENT --> CACHE : 分类树
+    CACHE --> RES : 分类树
+  else Admin 失败
+    CLIENT --> CACHE : error
+    CACHE -> CACHE : 退避 15s\n保留 last-good
+    alt 有 last-good
+      CACHE --> RES : 上一次成功的分类树
+    else 冷启动
+      CACHE -> SEED : fallback()
+      SEED --> CACHE : Science / Chinese Humanities /\nEuropean Humanities / Society（含中文名）
+      CACHE --> RES : 种子分类树
+    end
+  end
+else 未命中但有在途请求（single-flight）
+  CACHE --> RES : 等待同一个 Promise 的结果
+end
+RES --> UI : CategoryRef | null
+UI --> UI : 渲染 localized 显示名；\nnull → 只出现在「全部」下
+
+note over API
+  C1 契约：只含 ACTIVE；树形；
+  sortOrder 升序；不暴露 UUID
+end note
+@enduml

@@ -124,9 +124,14 @@ export class PackageWorker implements OnModuleInit, OnModuleDestroy {
             {
               versionId: job.sourceVersionId,
               environment: this.config.environmentLabel,
+              exportedBy: job.actorEmployeeId ?? undefined,
+              sourceEnv: this.config.versionNumberingMode,
             },
           )
-        : await this.buildDraftPackage(job.courseId);
+        : await this.buildDraftPackage(
+            job.courseId,
+            job.actorEmployeeId ?? undefined,
+          );
       const storageKey = this.storage.stagingKey(job.id, 'export.zip');
       await this.storage.putStaging(storageKey, built.bytes);
       await this.prisma.coursePackageJob.update({
@@ -164,6 +169,7 @@ export class PackageWorker implements OnModuleInit, OnModuleDestroy {
   /** 草稿导出：从当前工作区聚合直接打包（未发布的课程也能导出）。 */
   private async buildDraftPackage(
     courseId: string,
+    exportedBy?: string,
   ): Promise<{ bytes: Buffer; fileName: string; versionLabel: string }> {
     const course = await this.prisma.commerceCourse.findUnique({
       where: { id: courseId },
@@ -175,6 +181,11 @@ export class PackageWorker implements OnModuleInit, OnModuleDestroy {
       this.storage,
       courseId,
       'draft',
+      {
+        exportedBy,
+        sourceEnv: this.config.versionNumberingMode,
+        versionLabel: 'draft',
+      },
     );
     return {
       bytes,

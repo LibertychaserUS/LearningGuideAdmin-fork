@@ -1,0 +1,17 @@
+source zip: /Users/nihao/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_2r9lp9dzjsqc22_8c54/msg/attach/97a7391c0f3e5cbcfee4a9785c2f4c05/2026-11/Rec/3a59f264fcf791b8/F/1/Modeling life内容文件.zip
+entries: 25 (content 11, junk 14)
+content files:
+     3100051  Modeling life内容文件/Lesson 1 文本课件.docx
+   139718382  Modeling life内容文件/Lesson 1视频课件.mp4
+     1141651  Modeling life内容文件/Lesson 2文本课件.docx
+    21124683  Modeling life内容文件/Lesson 2视频课件.mp4
+     1207457  Modeling life内容文件/lesson1-exhibit-1.png
+      908422  Modeling life内容文件/lesson1-exhibit-2.png
+     1504663  Modeling life内容文件/lesson1-exhibit1缩略图.png
+     1158424  Modeling life内容文件/lesson1-exhibit2缩略图.png
+       19597  Modeling life内容文件/modeling life课程信息.xlsx
+     1750526  Modeling life内容文件/课程封面.png
+media probe:
+  Lesson 1视频课件.mp4: durationMs=1469312 video=1 audio=1 chapters=0 subtitles=0
+  Lesson 2视频课件.mp4: durationMs=1584263 video=1 audio=1 chapters=0 subtitles=0
+hasSubtitles=False hasChapterTracks=False

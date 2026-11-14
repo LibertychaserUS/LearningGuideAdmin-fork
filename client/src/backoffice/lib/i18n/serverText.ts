@@ -35,6 +35,7 @@ export const SERVER_MESSAGES: ReadonlyArray<readonly [zh: string, en: string]> =
   ["该课程 AI 导师未开放", "AI Tutor is not available for this course."],
   ["该课程尚未发布可用版本", "This course has no published version yet."],
   ["该课程没有可用的测试或上线版本", "This course has no test or live version."],
+  ["该课程没有可用的测试或上线版本；请先在 Knowledge 模块 Releases 页创建版本", "This course has no test or live version. Create one on the Releases tab in Knowledge."],
   ["AI 回答达到输出上限，内容未完成", "The AI answer reached its length limit and is incomplete."],
   ["发布版本不存在或不属于该课程", "The release does not exist or does not belong to this course."],
   ["发布版本不存在", "The release does not exist."],

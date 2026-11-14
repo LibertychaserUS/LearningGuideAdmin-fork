@@ -1,0 +1,9 @@
+# The full package carries the real ~169 MB media and is a local build
+# artifact; only the lite package is committed.
+full/
+
+# Builder scratch
+build/.workbook-*.json
+__pycache__/
+*.pyc
+.DS_Store

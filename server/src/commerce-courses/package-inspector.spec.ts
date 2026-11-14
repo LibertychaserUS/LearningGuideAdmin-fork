@@ -1,6 +1,9 @@
 import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
 import { PackageInspector } from './package-inspector';
 import { CourseStorageService } from './storage.service';
+import { LEGACY_PACKAGE_FORMAT_VERSION } from './contracts/manifest';
+import { TEMPLATE_V2_HEADERS } from '../partc/contracts';
 import type { CommerceCourseConfig } from './commerce.config';
 
 function testConfig(): CommerceCourseConfig {
@@ -32,105 +35,168 @@ const PNG = Buffer.from(
   'hex',
 );
 
-function validManifest() {
+const COURSE_KEY = 'C900';
+const LESSON_CODE = 'L001';
+
+/** Part C v2 模板工作簿（契约列名来自唯一 schema 源；模板无任何时间列）。 */
+function buildTemplateWorkbook(): Buffer {
+  const workbook = XLSX.utils.book_new();
+  const sheet = (name: keyof typeof TEMPLATE_V2_HEADERS, rows: unknown[][]) =>
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([[...TEMPLATE_V2_HEADERS[name]], ...rows]),
+      name,
+    );
+  sheet('Meta', [[2, COURSE_KEY, 'en-GB', 'text']]);
+  sheet('Media', []);
+  sheet('Course Info', [
+    ['title', 'en-GB', 'Test'],
+    ['shortDescription', 'en-GB', 'desc'],
+    ['overview', 'en-GB', 'ov'],
+    ['whatYouLearn', 'en-GB', 'a'],
+  ]);
+  sheet('Lessons', [[LESSON_CODE, 1, 'en-GB', 'Lesson 1', 'Lesson desc']]);
+  sheet('Learning Points', [[LESSON_CODE, '1.1', 'en-GB', 'Point one']]);
+  sheet('Exhibits', []);
+  sheet('Reading List', []);
+  sheet('Knowledge Test', []);
+  sheet('Application Test', []);
+  return XLSX.write(workbook, {
+    type: 'buffer',
+    bookType: 'xlsx',
+  }) as Buffer;
+}
+
+/**
+ * Part C v2 manifest（唯一 v2 契约 SSOT 形状）。
+ * 评审阻断 2：legacy 聚合形状（course.lessons）不再被任何测试当作 v2 夹具。
+ */
+function partcManifest(
+  resources: Array<{ id: string; kind: string; path: string; size: number }>,
+) {
   return {
     format: 'lg-course-package',
-    formatVersion: 1,
+    formatVersion: 2,
     packageId: 'pkg_test',
     exportedAt: new Date().toISOString(),
-    source: {},
-    incomplete: false,
+    minReaderVersion: 2,
+    extensionsUsed: [],
+    extensionsRequired: [],
     course: {
-      code: 'C900',
-      slug: 'test-course',
-      category: 'Science',
-      learningMode: 'VIDEO_AND_TEXT',
+      courseKey: COURSE_KEY,
+      titleLocalized: { 'en-GB': { title: 'Test' } },
+      categoryPath: ['Science'],
       learningLanguages: ['en-GB'],
-      defaultContentLanguage: 'en-GB',
-      cover: 'media/cover.png',
-      localized: {
-        'en-GB': {
-          title: 'Test',
-          shortDescription: 'desc',
-          overview: 'ov',
-          whatYouLearn: ['a'],
-        },
-      },
-      lessons: [
+      studyMode: 'text',
+    },
+    content: {
+      courseKey: COURSE_KEY,
+      versionNo: 1,
+      categoryPath: ['Science'],
+      stages: [
         {
-          code: 'L001',
-          order: 1,
-          localized: {
-            'en-GB': {
-              title: 'Lesson 1',
-              video: { file: 'media/video/L001/en-GB.mp4', learningPoints: [] },
-              text: {
-                html: '<h1>Hello</h1>',
-                learningPoints: [{ code: '1.1', heading: 'Hello' }],
-              },
-            },
-          },
-          exhibits: [],
+          courseKey: COURSE_KEY,
+          stageKey: 'step-C900',
+          parentStageKey: null,
+          orderKey: '000001',
+          kind: 'step',
+          goal: 'Test',
+          objectiveKeys: ['obj-C900'],
+          exitEvidence: ['ev-C900'],
+          exitRollup: { kind: 'all' },
+          status: 'active',
         },
       ],
-      trial: { enabled: false, lessons: [] },
+      prerequisiteEdges: [],
+      specPins: [{ contentKey: LESSON_CODE, version: 1 }],
+      renditions: [],
+      alignments: [],
+      evidenceSpecs: [
+        {
+          evidenceKey: 'ev-C900',
+          version: 1,
+          kind: 'artifact',
+          objectiveKeys: ['obj-C900'],
+          measure: { kind: 'artifact', instructions: 'Complete the course.' },
+          scoring: 'pass-fail',
+          threshold: 1,
+          attempts: 1,
+        },
+      ],
+      assetPins: [],
     },
+    resources,
   };
 }
 
-async function buildZip(
-  files: Record<string, Buffer | string>,
-  withChecksums = true,
-): Promise<Buffer> {
-  const zip = new JSZip();
-  for (const [name, content] of Object.entries(files)) {
-    zip.file(name, content);
-  }
-  if (withChecksums) {
-    const lines = Object.entries(files)
-      .filter(([name]) => name !== 'manifest.json')
-      .map(([name, content]) => {
-        const buf =
-          typeof content === 'string' ? Buffer.from(content) : content;
-        return `${CourseStorageService.sha256(buf)}  ${name}`;
-      });
-    zip.file('checksums.sha256', lines.join('\n'));
-  }
-  return zip.generateAsync({ type: 'nodebuffer' });
+function templateResource(size: number) {
+  return [
+    { id: 'template', kind: 'template', path: 'template.xlsx', size },
+  ] as Array<{ id: string; kind: string; path: string; size: number }>;
 }
 
 function inspector() {
   return new PackageInspector(testConfig(), {} as CourseStorageService);
 }
 
-// A tiny fake mp4 (ftyp box) to satisfy signature check
-const MP4 = Buffer.concat([
-  Buffer.from([0, 0, 0, 0x18]),
-  Buffer.from('ftypisom', 'ascii'),
-  Buffer.alloc(16),
-]);
-
 describe('PackageInspector', () => {
-  it('accepts a valid package', async () => {
-    const zip = await buildZip({
-      'manifest.json': JSON.stringify(validManifest()),
-      'media/cover.png': PNG,
-      'media/video/L001/en-GB.mp4': MP4,
-    });
-    const result = await inspector().inspect(zip);
-    expect(result.manifest.course.code).toBe('C900');
+  it('accepts a valid Part C v2 package', async () => {
+    const template = buildTemplateWorkbook();
+    const zip = new JSZip();
+    zip.file(
+      'manifest.json',
+      JSON.stringify(partcManifest(templateResource(template.length))),
+    );
+    zip.file('template.xlsx', template);
+    const result = await inspector().inspect(
+      await zip.generateAsync({ type: 'nodebuffer' }),
+    );
     expect(result.report.errors.length).toBe(0);
+    expect(result.report.details?.contract).toBe('partc-v2');
   });
 
-  it('rejects checksum mismatch', async () => {
+  it('rejects a package carrying an undeclared checksums.sha256 (closed package, no hash manifests)', async () => {
+    const template = buildTemplateWorkbook();
     const zip = new JSZip();
-    zip.file('manifest.json', JSON.stringify(validManifest()));
-    zip.file('media/cover.png', PNG);
-    zip.file('media/video/L001/en-GB.mp4', MP4);
-    zip.file('checksums.sha256', `${'a'.repeat(64)}  media/cover.png`);
-    const buf = await zip.generateAsync({ type: 'nodebuffer' });
-    await expect(inspector().inspect(buf)).rejects.toMatchObject({
-      code: 'PACKAGE_CHECKSUM_MISMATCH',
+    zip.file(
+      'manifest.json',
+      JSON.stringify(partcManifest(templateResource(template.length))),
+    );
+    zip.file('template.xlsx', template);
+    zip.file('checksums.sha256', `${'a'.repeat(64)}  template.xlsx`);
+    await expect(
+      inspector().inspect(await zip.generateAsync({ type: 'nodebuffer' })),
+    ).rejects.toMatchObject({
+      code: 'PACKAGE_FILE_UNKNOWN',
+    });
+  });
+
+  it('rejects the retired raw material package marker (legacy, not v2)', async () => {
+    // raw 素材导入已退役：excel-package 产物带 legacy 标记与 EXCEL_* 来源。
+    const manifest = {
+      format: 'lg-course-package',
+      formatVersion: LEGACY_PACKAGE_FORMAT_VERSION,
+      packageId: 'raw-template-test',
+      exportedAt: new Date().toISOString(),
+      source: { environment: 'EXCEL_TEMPLATE', courseCode: COURSE_KEY },
+      incomplete: false,
+      course: {
+        code: COURSE_KEY,
+        slug: 'test-course',
+        categoryPath: null,
+        learningMode: 'TEXT_ONLY',
+        learningLanguages: ['en-GB'],
+        defaultContentLanguage: 'en-GB',
+        localized: { 'en-GB': { title: 'Test' } },
+        lessons: [],
+      },
+    };
+    const zip = new JSZip();
+    zip.file('manifest.json', JSON.stringify(manifest));
+    await expect(
+      inspector().inspect(await zip.generateAsync({ type: 'nodebuffer' })),
+    ).rejects.toMatchObject({
+      code: 'PACKAGE_FORMAT_UNSUPPORTED',
     });
   });
 
@@ -154,14 +220,20 @@ describe('PackageInspector', () => {
     });
   });
 
-  it('rejects missing media referenced by manifest', async () => {
-    const zip = await buildZip({
-      'manifest.json': JSON.stringify(validManifest()),
-      // cover.png intentionally omitted
-      'media/video/L001/en-GB.mp4': MP4,
-    });
-    await expect(inspector().inspect(zip)).rejects.toMatchObject({
-      code: 'PACKAGE_MEDIA_INVALID',
+  it('rejects a manifest resource that the package does not deliver', async () => {
+    const template = buildTemplateWorkbook();
+    const resources = [
+      ...templateResource(template.length),
+      { id: 'cover', kind: 'cover', path: 'media/cover.png', size: PNG.length },
+    ];
+    const zip = new JSZip();
+    zip.file('manifest.json', JSON.stringify(partcManifest(resources)));
+    zip.file('template.xlsx', template);
+    // media/cover.png intentionally omitted
+    await expect(
+      inspector().inspect(await zip.generateAsync({ type: 'nodebuffer' })),
+    ).rejects.toMatchObject({
+      code: 'PACKAGE_FILE_MISSING',
     });
   });
 });

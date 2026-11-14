@@ -23,6 +23,7 @@
     "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:debug": "node --inspect-brk --experimental-vm-modules -r tsconfig-paths/register -r ts-node/register node_modules/jest/bin/jest.js --runInBand",
     "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config ./test/jest-e2e.json",
+    "test:partc": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand partc-contracts",
     "seed:demo": "ts-node prisma/seed-demo.ts",
     "prompts:sync": "ts-node src/ai/sync-prompts.ts",
     "eval:helpdesk": "ts-node eval/helpdesk/run.ts",

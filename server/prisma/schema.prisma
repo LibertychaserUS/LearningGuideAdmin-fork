@@ -1028,6 +1028,10 @@ model CommerceCourse {
   /// 乐观并发（PRD §23）：每次草稿写入 +1，前端以 If-Match: "r<revision>" 提交；见 draft-revision.ts
   revision               Int                   @default(0)
   revisionBy             String?               @db.Uuid
+  /// 显式草稿状态（设计 C9）：每次草稿写入 +1；No draft ⇔ draftRevision == liveBaseRevision
+  draftRevision          Int                   @default(0)
+  /// 发布时取当时的 draftRevision（设计 C9）
+  liveBaseRevision       Int                   @default(0)
 
   // v1 兼容 / 迁移过渡
   subtitle               String?
@@ -1151,7 +1155,7 @@ model ExhibitTrigger {
   language    String
   timeSeconds Int
 
-  @@unique([lessonId, exhibitId, language])
+  @@unique([lessonId, exhibitId, language, timeSeconds])
 }
 
 model RecommendedReading {
@@ -1427,4 +1431,446 @@ model HelpdeskIdempotency {
   @@id([command, actor, key], map: "helpdesk_idempotency_pkey")
   @@index([at], map: "helpdesk_idempotency_at_idx")
   @@map("helpdesk_idempotency")
+}
+
+// ==========================================
+// Part C 内容模型（设计 SSOT：docs/Course_Category_Single_Source_Design.md §14 C3）
+//
+// 实体映射（C3 名称 → Prisma model / 表名）：
+//   Course            → PcCourse            / pc_course
+//   Stage             → PcStage             / pc_stage
+//   PrerequisiteEdge  → PcPrerequisiteEdge  / pc_prerequisite_edge
+//   Objective         → PcObjective         / pc_objective
+//   EvidenceSpec      → PcEvidenceSpec      / pc_evidence_spec
+//   ContentSpec       → PcContentSpec       / pc_content_spec
+//   Block             → PcBlock             / pc_block
+//   Rendition         → PcRendition         / pc_rendition
+//   MediaAsset        → PcMediaAsset        / pc_media_asset
+//   Alignment         → PcAlignment         / pc_alignment
+//   ContentVersion    → PcContentVersion    / pc_content_version
+//   Plan              → PcPlan              / pc_plan
+//   PlanEntry         → 不入表               （entries[] 是 Plan canonical JSON 的一部分，见 C6）
+//   PlanApproval      → PcPlanApproval      / pc_plan_approval
+//   LearningEvent     → PcLearningEvent     / pc_learning_event
+//   EvidenceAttainment→ PcEvidenceAttainment/ pc_evidence_attainment
+//
+// 为什么用 Pc 前缀：既有 Commerce 课程域已有 Course / Lesson / CourseVersion /
+// CoursePlan 等模型，Part C 是独立的新内容模型（稳定字符串键、无时间轴、无哈希），
+// 两者通过 courseKey 在服务层绑定，不建跨域外键。P0 契约的唯一来源是
+// server/src/partc/contracts/（Zod schema 与字段/词表一一对应）。
+//
+// 红线（C0，DB 兜底）：
+// - 全系统不使用任何内容哈希/digest 作为身份或工件绑定：这些表没有任何
+//   hash/checksum/digest 列；Plan 比较用 canonicalJson 字节相等 + planVersion。
+// - 时间只来自容器探测/字幕/章节/DOCX 结构；Duration 只在 PcMediaAsset
+//   （容器探测属性）与 PcStage.durationBudget（设计约束）上出现。
+// - 资产身份 = assetKey + assetVersion；坐标只存在于 PcRendition（坐标单源，
+//   PcAlignment 不存坐标）。
+//
+// 跨行不变量（STR-1 包含森林无环 / kind 层级 / 交付叶 / 容器 exitEvidence 为空）
+// 按 P0 契约（contracts/stage.ts）由编译器/发布门校验——草稿允许 incomplete
+// 入库（C5 P2）；DB 只兜单行部分：闭合词表、自指禁止、同父 orderKey 唯一
+// （NULLS NOT DISTINCT）、orderKey 格式。
+// ==========================================
+
+model PcCourse {
+  courseKey      String   @id
+  /// 分类稳定键路径（C3；null = 未分类）。无本地分类表，分类单源在 Admin catalogue。
+  categoryPath   Json?
+  /// {locale:{field:text}}（contracts/primitives.ts LocalizedTemplateSchema）
+  titleLocalized Json
+  /// [{languages:[有序回退链], modalities:[video|text]}]；空数组 = 不可发布
+  publishTargets Json     @default("[]")
+  /// C6 inputClosure.structureRevision：阶段树/先修边每次写入 +1（单调，不参与内容身份）
+  structureRevision Int   @default(0)
+  /// C6 inputClosure.alignmentSetVersion：对齐每次新增/修改/删除 +1（单调，不参与内容身份）
+  alignmentSetVersion Int @default(0)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  stages          PcStage[]
+  plans           PcPlan[]
+  contentVersions PcContentVersion[]
+  publications    PcPublication[]
+
+  @@map("pc_course")
+}
+
+model PcStage {
+  stageKey       String    @id
+  courseKey      String
+  course         PcCourse  @relation(fields: [courseKey], references: [courseKey], onDelete: Cascade, onUpdate: NoAction)
+  /// 包含森林：单列即 ≤1 父；无环与 kind 层级由编译器/发布门校验（STR-1）
+  parentStageKey String?
+  parent         PcStage?  @relation("PcStageTree", fields: [parentStageKey], references: [stageKey], onDelete: Restrict, onUpdate: NoAction)
+  children       PcStage[] @relation("PcStageTree")
+  /// 程序生成的零填充数值路径（contracts/stage.ts：^\d{6}(\.\d{6})*$）
+  orderKey       String
+  /// program | phase | stage | step
+  kind           String
+  goal           String    @db.Text
+  objectiveKeys  String[]  @default([])
+  exitEvidence   String[]  @default([])
+  /// {kind:'all'|'anyOf'|'atLeast', n?:positiveInt}
+  exitRollup     Json
+  /// 仅对媒体求和校验的设计约束（C7），整数毫秒；不是课程时间轴
+  durationBudget Int?
+  /// active | retired
+  status         String
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  edgesFrom  PcPrerequisiteEdge[] @relation("PcEdgeFrom")
+  edgesTo    PcPrerequisiteEdge[] @relation("PcEdgeTo")
+  alignments PcAlignment[]
+
+  @@unique([courseKey, parentStageKey, orderKey])
+  @@index([courseKey])
+  @@map("pc_stage")
+}
+
+model PcPrerequisiteEdge {
+  fromStageKey String
+  toStageKey   String
+  /// requires | recommends；DAG 不是树，允许多父
+  kind         String
+  fromStage    PcStage @relation("PcEdgeFrom", fields: [fromStageKey], references: [stageKey], onDelete: Cascade, onUpdate: NoAction)
+  toStage      PcStage @relation("PcEdgeTo", fields: [toStageKey], references: [stageKey], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([fromStageKey, toStageKey, kind])
+  @@index([toStageKey])
+  @@map("pc_prerequisite_edge")
+}
+
+model PcObjective {
+  objectiveKey String   @id
+  /// 归属课程（(courseKey, objectiveKey) 复合唯一）。历史行由迁移按唯一
+  /// alignment→stage 归属回填；歧义/无归属保持 NULL（NULLS DISTINCT，合法）。
+  courseKey    String?
+  statement    String   @db.Text
+  /// active | retired；退役不复用
+  status       String
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  alignments PcAlignment[]
+
+  @@unique([courseKey, objectiveKey])
+  @@index([courseKey])
+  @@map("pc_objective")
+}
+
+model PcEvidenceSpec {
+  evidenceKey   String
+  version       Int
+  /// assessment | artifact | performance（completion/出勤/自报/观看完成率不在词表）
+  kind          String
+  objectiveKeys String[] @default([])
+  /// 与 kind 同型的 measure（assessment|artifact|performance 判别联合）
+  measure       Json
+  /// points | rubric | pass-fail
+  scoring       String
+  threshold     Float
+  attempts      Int
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([evidenceKey, version])
+  @@map("pc_evidence_spec")
+}
+
+model PcContentSpec {
+  contentKey     String
+  version        Int
+  /// 归属课程（(courseKey, contentKey) 键的版本轴在此：同课程同 contentKey
+  /// 的每个 version 唯一）。历史行由迁移按 rendition→alignment→stage 回填。
+  courseKey      String?
+  /// video | text | exhibit | reading | knowledge-test | application-test（6 类闭集）
+  type           String
+  titleLocalized Json
+  /// 弱提示，不构成权威绑定；空数组 = 契约缺省（optional）
+  objectiveHints String[] @default([])
+  /// 空数组 = 契约缺省（optional）
+  sourceRefs     String[] @default([])
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  /// blocks[] 顺序 = sortOrder（0 起）；block 内容与 payload 同型
+  blocks PcBlock[]
+
+  @@id([contentKey, version])
+  @@unique([courseKey, contentKey, version])
+  @@index([courseKey])
+  @@map("pc_content_spec")
+}
+
+model PcBlock {
+  contentKey String
+  version    Int
+  /// 稳定不复用；机器可引用最小单位
+  blockId    String
+  /// ContentSpec.blocks[] 的数组位置
+  sortOrder  Int
+  /// text | video | audio | image | model3d | question | code
+  kind       String
+  payload    Json
+
+  spec PcContentSpec @relation(fields: [contentKey, version], references: [contentKey, version], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([contentKey, version, blockId])
+  @@unique([contentKey, version, sortOrder])
+  @@index([contentKey, blockId])
+  @@map("pc_block")
+}
+
+model PcRendition {
+  renditionKey   String   @id
+  /// 指向内容块（π_K: R→K）。业务键不含 spec version（C3），block 随冻结的
+  /// specPins 解析，因此不建到 pc_block 的外键；ALN-3 由编译器按 pin 校验。
+  contentKey     String
+  blockId        String
+  language       String
+  /// text | video | audio | image | model3d
+  modality       String
+  occurrenceKey  String
+  /// asset | document；坐标单源：asset 只允许 startMs/endMs，document 只允许 headingCode/offset
+  carrierType    String
+  carrierKey     String
+  carrierVersion Int
+  /// 半开区间 [startMs,endMs)，整数毫秒；endMs ≤ durationMs 由导入/编译器按资产校验
+  startMs        Int?
+  endMs          Int?
+  /// DOCX 结构锚点（document 载体）
+  headingCode    String?
+  offset         Int?
+  /// subtitle | chapter | asr | forced-alignment | doc-structure | import-legacy
+  anchorSource   String
+  /// 业务坐标修订号；Alignment.verifiedAgainst.renditionRevision 对齐它
+  revision       Int      @default(1)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  alignments PcAlignment[]
+
+  @@unique([contentKey, blockId, language, modality, carrierType, carrierKey, carrierVersion, occurrenceKey], map: "pc_rendition_business_key_key")
+  @@index([carrierType, carrierKey, carrierVersion])
+  @@map("pc_rendition")
+}
+
+model PcMediaAsset {
+  assetKey     String
+  assetVersion Int
+  /// cover | video | audio | image | model3d | thumbnail | lesson-text | subtitle | chapters
+  kind         String
+  language     String?
+  /// 容器探测出的时长（video/audio 必填 > 0，其它类型必须为空）；仅属性，不参与身份
+  durationMs   Int?
+  uri          String   @db.Text
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  // 无 checksum/hash 列（C0 红线⑦）
+  @@id([assetKey, assetVersion])
+  @@map("pc_media_asset")
+}
+
+model PcAlignment {
+  alignmentId     String    @id
+  stageKey        String
+  renditionKey    String
+  objectiveKey    String
+  /// primary | support | assessment | auxiliary
+  role            String
+  /// 存储只允许 proposed | verified | rejected；stale 读时派生（ALN-6），绝不落库
+  status          String    @default("proposed")
+  /// human | import | legacy | semantic；provenance≠human ⇒ 创建时只能 proposed（DB 触发器兜底）
+  provenance      String
+  /// 派生审计（C7/C10.4）：subtitle | chapter | asr | forced-alignment | doc-structure；
+  /// 与 sourceArtifact/ruleVersion 三者全有或全无（DB CHECK 兜底）
+  sourceKind      String?
+  /// 字幕/章节=包内路径；ASR/强制对齐=内部工件 id；doc-structure=document assetKey
+  sourceArtifact  String?
+  /// ASR/强制对齐模型版本（其余来源必须为空）
+  modelVersion    String?
+  /// ASR/强制对齐派生参数（JSON 标量对象；其余来源必须为空）
+  params          Json?
+  /// 派生规则版本（C7 以参数形式版本化；其余来源必须为空）
+  ruleVersion     String?
+  /// 派生置信度 0..1（ASR/强制对齐派生必须有值；其余来源可空）。审计数据，
+  /// 不参与身份、幂等与 staleness。
+  confidence      Float?
+  /// verified 必须有人签收：三件套齐全；非 verified 不得携带审计元组（DB CHECK 兜底）
+  verifiedBy      String?
+  verifiedAt      DateTime? @db.Timestamptz(6)
+  /// {renditionRevision, carrierVersion, specVersion}
+  verifiedAgainst Json?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
+
+  stage     PcStage     @relation(fields: [stageKey], references: [stageKey], onDelete: Cascade, onUpdate: NoAction)
+  rendition PcRendition @relation(fields: [renditionKey], references: [renditionKey], onDelete: Restrict, onUpdate: NoAction)
+  objective PcObjective @relation(fields: [objectiveKey], references: [objectiveKey], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([stageKey, renditionKey])
+  @@index([renditionKey])
+  @@index([objectiveKey])
+  @@map("pc_alignment")
+}
+
+model PcContentVersion {
+  contentVersionId  String   @id @default(uuid())
+  courseKey         String
+  versionNo         Int
+  /// 冻结时刻（审计时间，不参与内容身份）
+  frozenAt          DateTime @db.Timestamptz(6)
+  /// C10.3 来源环境（sandbox | production）；环境局部，不参与内容身份（DB CHECK 兜底）
+  sourceEnv         String?
+  /// C10.3 来源版本标签（如 Sandbox 4.2 / Version N）；环境局部，不参与内容身份
+  sourceLabel       String?
+  categoryPath      Json?
+  /// 冻结快照（只含稳定键，contracts/content-version.ts）：
+  /// stages[] / prerequisiteEdges[] / specPins[] / renditions[] / alignments[]（仅 verified）
+  /// / evidenceSpecs[] / assetPins[]
+  stages            Json
+  prerequisiteEdges Json
+  specPins          Json
+  renditions        Json
+  alignments        Json
+  evidenceSpecs     Json
+  assetPins         Json
+  /// planPin = (planId, planVersion)；apply 只认已批准的 plan（C6/G4）
+  planId            String
+  planVersion       Int
+
+  course PcCourse @relation(fields: [courseKey], references: [courseKey], onDelete: Restrict, onUpdate: NoAction)
+  plan   PcPlan   @relation(fields: [planId, planVersion], references: [planId, planVersion], onDelete: Restrict, onUpdate: NoAction)
+
+  learningEvents      PcLearningEvent[]
+  evidenceAttainments PcEvidenceAttainment[]
+  publications        PcPublication[]
+
+  @@unique([courseKey, versionNo])
+  @@map("pc_content_version")
+}
+
+/// 发布记录（追加写；C10 历史与追溯不使用内容哈希）。
+///
+/// live 指针 = 最高有效发布（validFrom <= now 且 validTo 为空或 > now）派生，
+/// 不另存可空指针列。一条记录 = 一次“某版本自 validFrom 起生效”的声明；
+/// 新发布写入时把上一条的 validTo 收敛为本次 validFrom。
+model PcPublication {
+  id               String   @id @default(uuid())
+  courseKey        String
+  contentVersionId String
+  /// 本环境单调版本号（与 PcContentVersion.versionNo 一致）
+  versionNo        Int
+  /// 生效区间（valid time）；写入时间另存 createdAt（transaction time）
+  validFrom        DateTime @db.Timestamptz(6)
+  validTo          DateTime? @db.Timestamptz(6)
+  /// 操作者（员工 id 或 system）
+  actor            String
+  /// 变更摘要（人类可读，可选；不参与身份）
+  summary          String?  @db.Text
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  course         PcCourse         @relation(fields: [courseKey], references: [courseKey], onDelete: Restrict, onUpdate: NoAction)
+  contentVersion PcContentVersion @relation(fields: [contentVersionId], references: [contentVersionId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([courseKey, versionNo])
+  @@index([courseKey, validFrom])
+  @@map("pc_publication")
+}
+
+model PcPlan {
+  /// planId = plan/{courseKey}/{contentVersionId}/{targetId}/v{planVersion}（显式派生，无摘要）
+  planId           String   @id
+  courseKey        String
+  /// 计划产出的内容版本编号；Plan 先于 ContentVersion 落库（P5 save → P6 apply），故不建外键
+  contentVersionId String
+  targetId         String
+  /// 单调递增（每个 (courseKey, contentVersionId, targetId) 内）
+  planVersion      Int
+  /// C6 inputClosure 显式结构（不是摘要）
+  inputClosure     Json
+  /// canonical JSON 原文（bytes）；比较用字节相等，不用哈希（C6/PLN-1）。
+  /// entries[]、warnings[]、ruleTrace 都在 canonicalJson 正文内（结构化 code，无 locale）；
+  /// 列只为外置 status 与查询键服务，不重复正文。
+  canonicalJson    String   @db.Text
+  /// draft | approved | degraded | blocked | superseded；外置状态，不进 bytes
+  status           String   @default("draft")
+  compilerVersion  String
+  ruleVersion      String
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  course          PcCourse           @relation(fields: [courseKey], references: [courseKey], onDelete: Cascade, onUpdate: NoAction)
+  approvals       PcPlanApproval[]
+  contentVersions PcContentVersion[]
+
+  @@unique([courseKey, contentVersionId, targetId, planVersion])
+  /// (planId, planVersion) 是 PlanApproval / ContentVersion.planPin 的绑定目标
+  @@unique([planId, planVersion])
+  @@map("pc_plan")
+}
+
+model PcPlanApproval {
+  id               String   @id @default(uuid())
+  planId           String
+  planVersion      Int
+  /// approved | rejected
+  decision         String
+  approvedBy       String
+  approvedAt       DateTime @db.Timestamptz(6)
+  /// 被显式接受的结构化 warning（code 枚举，无本地化散文）
+  acceptedWarnings Json     @default("[]")
+
+  /// 绑定 (planId, planVersion) 由复合外键保证；同一版本允许多条决定记录
+  /// （如先 rejected 再 approved），"apply 只认已批准" 由 apply 门按最新/有效决定校验（C6/G4）
+  plan PcPlan @relation(fields: [planId, planVersion], references: [planId, planVersion], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([planId, planVersion])
+  @@map("pc_plan_approval")
+}
+
+model PcLearningEvent {
+  /// 客户端幂等键（PK 即幂等）
+  eventId          String   @id
+  userId           String
+  sessionId        String
+  /// started | paused | resumed | completed | abandoned
+  type             String
+  /// 客户端时钟（ISO 8601 UTC 落库）
+  occurredAt       DateTime @db.Timestamptz(6)
+  /// 服务端权威时钟
+  receivedAt       DateTime @default(now()) @db.Timestamptz(6)
+  contentVersionId String
+  /// 事件属于冻结版本的 stage（按版本快照校验，不建到当前树的 FK）
+  stageKey         String
+  sequence         Int?
+
+  contentVersion PcContentVersion @relation(fields: [contentVersionId], references: [contentVersionId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([userId, contentVersionId, stageKey])
+  @@index([sessionId, sequence])
+  @@index([userId, sessionId, contentVersionId, stageKey], map: "pc_learning_event_started_lookup_idx")
+  @@map("pc_learning_event")
+}
+
+model PcEvidenceAttainment {
+  id               String   @id @default(uuid())
+  contentVersionId String
+  stageKey         String
+  /// 解析到该 contentVersion 冻结的 EvidenceSpec（spec 按 (evidenceKey, version) 版本化，
+  /// 版本由 contentVersion.evidenceSpecs 快照承载，故不建到 pc_evidence_spec 的外键）
+  evidenceKey      String
+  /// 每次尝试一行（账本唯一键含 attemptNo，DB 唯一索引兜底）
+  attemptNo        Int
+  score            Float?
+  rubricLevel      String?
+  attained         Boolean
+  gradedBy         String
+  gradedAt         DateTime @db.Timestamptz(6)
+
+  contentVersion PcContentVersion @relation(fields: [contentVersionId], references: [contentVersionId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([contentVersionId, stageKey, evidenceKey, attemptNo], map: "pc_evidence_attainment_ledger_key")
+  @@map("pc_evidence_attainment")
 }

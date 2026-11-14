@@ -3,11 +3,57 @@ import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { PackageManifest, PackageExhibit } from './contracts/manifest';
+import type { PackageManifestV2 } from '../partc/contracts/package-manifest';
+import { parsePackage } from '../partc/compiler/parse';
+import { PartCError } from '../partc/errors';
 import { CourseStorageService } from './storage.service';
 import { COMMERCE_CONFIG, type CommerceCourseConfig } from './commerce.config';
 import { validateMediaFile } from './media-validate';
-import { applyVersionSnapshot, type VersionSnapshot } from './version-snapshot';
+import {
+  applyVersionSnapshotInTx,
+  type VersionSnapshot,
+} from './version-snapshot';
+import { findCategoryByPath, CategoryResolutionError } from './category-path';
 import { HISTORY_ACTIONS } from './publishing.service';
+import {
+  buildPartcVersionSnapshot,
+  compilePartcPackageFromIr,
+  decodeTemplateWorkbook,
+  extractPartcDocuments,
+  isPartCV2Manifest,
+  persistPartcEntities,
+  templateResourcePathOf,
+  PartcCompileError,
+  reportFromPartCError,
+} from './partc-import';
+import { extractAsrTranscripts } from './asr-adapter';
+
+/**
+ * 并发导入同一课程时的唯一键竞争：Prisma P2002（CommerceCourse.code）必须映射
+ * 为可识别的 409 `PACKAGE_CONFLICT`，而不是 500。事务已整体回滚（无半成品）。
+ */
+function asImportConflict(error: unknown): unknown {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'P2002'
+  ) {
+    const rawTarget = (error as { meta?: { target?: unknown } }).meta?.target;
+    const target = Array.isArray(rawTarget)
+      ? rawTarget.map(String)
+      : typeof rawTarget === 'string' || typeof rawTarget === 'number'
+        ? [String(rawTarget)]
+        : [];
+    if (target.some((entry) => entry.includes('code'))) {
+      return new ImportError(
+        'PACKAGE_CONFLICT',
+        409,
+        'Course ID was created by a concurrent import; the second import is refused (no partial rows were written).',
+      );
+    }
+  }
+  return error;
+}
 
 export interface ImportOptions {
   onConflict: 'ABORT' | 'CREATE_NEW_COURSE' | 'NEW_VERSION';
@@ -20,6 +66,21 @@ export class ImportError extends Error {
     public code: string,
     public status: number,
     message: string,
+    public report?: {
+      errors: Array<{
+        level: 'error' | 'warning';
+        code: string;
+        message: string;
+        path?: string;
+      }>;
+      warnings: Array<{
+        level: 'error' | 'warning';
+        code: string;
+        message: string;
+        path?: string;
+      }>;
+      incomplete: boolean;
+    },
   ) {
     super(message);
   }
@@ -48,10 +109,14 @@ export class PackageImporter {
   ) {}
 
   async importPackage(
-    manifest: PackageManifest,
+    manifestRaw: PackageManifest | PackageManifestV2,
     files: Map<string, Buffer>,
     options: ImportOptions,
   ): Promise<{ courseId: string }> {
+    if (isPartCV2Manifest(manifestRaw)) {
+      return this.importPartcPackage(manifestRaw, files, options);
+    }
+    const manifest = manifestRaw;
     const { course } = manifest;
 
     // 冲突检测：Course ID（课程身份）与 slug（URL 标识）要分开判断。
@@ -93,9 +158,6 @@ export class PackageImporter {
       targetSlug = await this.uniqueSlug(targetSlug);
     }
 
-    // 分类（自动创建/复用，大小写不敏感）
-    const categoryId = await this.resolveCategory(course.category);
-
     const courseId = randomUUID();
     const mediaKeyMap = new Map<string, ImportedMediaMeta>();
 
@@ -107,20 +169,25 @@ export class PackageImporter {
       throw error;
     }
 
-    // 2) DB 写入
+    // 2) DB 写入（C5：分类解析与课程写入同一事务；解析失败整体回滚，
+    //    不创建分类、不留孤儿）
     try {
-      await this.prisma.$transaction(async (tx) => {
-        await this.writeCourse(
-          tx,
-          courseId,
-          { targetCode, targetSlug, categoryId },
-          manifest,
-          mediaKeyMap,
-        );
-      });
+      await this.prisma.$transaction(
+        async (tx) => {
+          const categoryId = await this.resolveCategoryPath(tx, course);
+          await this.writeCourse(
+            tx,
+            courseId,
+            { targetCode, targetSlug, categoryId },
+            manifest,
+            mediaKeyMap,
+          );
+        },
+        { timeout: 60_000 },
+      );
     } catch (error) {
       await this.rollbackMedia(courseId, mediaKeyMap);
-      throw error;
+      throw asImportConflict(error);
     }
 
     return { courseId };
@@ -132,10 +199,19 @@ export class PackageImporter {
    */
   async importIntoExistingCourse(
     courseId: string,
-    manifest: PackageManifest,
+    manifestRaw: PackageManifest | PackageManifestV2,
     files: Map<string, Buffer>,
     actorEmployeeId: string | null,
   ): Promise<{ courseId: string }> {
+    if (isPartCV2Manifest(manifestRaw)) {
+      return this.importPartcIntoExistingCourse(
+        courseId,
+        manifestRaw,
+        files,
+        actorEmployeeId,
+      );
+    }
+    const manifest = manifestRaw;
     const existing = await this.prisma.commerceCourse.findUnique({
       where: { id: courseId },
       select: { id: true, code: true },
@@ -150,7 +226,6 @@ export class PackageImporter {
       );
     }
 
-    const categoryId = await this.resolveCategory(manifest.course.category);
     const mediaKeyMap = new Map<string, ImportedMediaMeta>();
     try {
       await this.transferMedia(courseId, manifest, files, mediaKeyMap);
@@ -162,135 +237,509 @@ export class PackageImporter {
     }
 
     try {
-      const snapshot = this.snapshotFromPackage(
-        manifest,
-        categoryId,
-        mediaKeyMap,
-      );
-      await applyVersionSnapshot(this.prisma, courseId, snapshot);
-      await this.prisma.$transaction(async (tx) => {
-        await tx.commerceCourse.update({
-          where: { id: courseId },
-          data: {
-            hasDraft: true,
-            lifecycleStatus: 'WORKING',
-            // 导入整包覆盖草稿：已打开的编辑页再保存会收到 409，而不是覆盖导入结果
-            revision: { increment: 1 },
-            revisionBy: null,
-            trialEnabled: Boolean(manifest.course.trial?.enabled),
-            draftSourceType: 'IMPORT',
-            draftSourceEnvironment: manifest.source.environment ?? null,
-            draftSourceVersionLabel: manifest.source.sourceVersion ?? null,
-          },
-        });
+      const snapshot = this.snapshotFromPackage(manifest, mediaKeyMap);
+      await this.prisma.$transaction(
+        async (tx) => {
+          // C5/C7：v3 快照按 categoryPath 在同一事务内解析；失败整体回滚，草稿不变。
+          try {
+            await applyVersionSnapshotInTx(tx, courseId, snapshot);
+          } catch (error) {
+            if (error instanceof CategoryResolutionError) {
+              throw new ImportError('CATEGORY_NOT_FOUND', 422, error.message);
+            }
+            throw error;
+          }
+          await tx.commerceCourse.update({
+            where: { id: courseId },
+            data: {
+              hasDraft: true,
+              // C9：导入整包 = 显式"有草稿"状态。
+              draftRevision: { increment: 1 },
+              lifecycleStatus: 'WORKING',
+              // 导入整包覆盖草稿：已打开的编辑页再保存会收到 409，而不是覆盖导入结果
+              revision: { increment: 1 },
+              revisionBy: null,
+              trialEnabled: Boolean(manifest.course.trial?.enabled),
+              draftSourceType: 'IMPORT',
+              draftSourceEnvironment: manifest.source.environment ?? null,
+              draftSourceVersionLabel: manifest.source.sourceVersion ?? null,
+            },
+          });
 
-        // applyVersionSnapshot 可能复用/重建 Lesson 与 LP 行，必须重新从数据库取实际 ID。
-        const actualLessons = await tx.lesson.findMany({
-          where: { courseId, archivedAt: null },
-          select: { id: true, code: true },
-        });
-        const lessonIdByCode = new Map(
-          actualLessons.map((lesson) => [lesson.code, lesson.id]),
-        );
-        const lessonCodeById = new Map(
-          actualLessons.map((lesson) => [lesson.id, lesson.code]),
-        );
-        const learningPoints = await tx.learningPoint.findMany({
-          where: { lesson: { courseId } },
-          select: { id: true, lessonId: true, code: true },
-        });
-        const lpIdByKey = new Map(
-          learningPoints.map((lp) => [
-            `${lessonCodeById.get(lp.lessonId) ?? ''}|${lp.code}`,
-            lp.id,
-          ]),
-        );
-        const lpIds = new Set(learningPoints.map((lp) => lp.id));
-        const resolveCutoff = (lessonCode: string, ref?: string | null) => {
-          if (!ref) return null;
-          return (
-            lpIdByKey.get(`${lessonCode}|${ref}`) ??
-            (lpIds.has(ref) ? ref : null)
+          // applyVersionSnapshot 可能复用/重建 Lesson 与 LP 行，必须重新从数据库取实际 ID。
+          const actualLessons = await tx.lesson.findMany({
+            where: { courseId, archivedAt: null },
+            select: { id: true, code: true },
+          });
+          const lessonIdByCode = new Map(
+            actualLessons.map((lesson) => [lesson.code, lesson.id]),
           );
-        };
+          const lessonCodeById = new Map(
+            actualLessons.map((lesson) => [lesson.id, lesson.code]),
+          );
+          const learningPoints = await tx.learningPoint.findMany({
+            where: { lesson: { courseId } },
+            select: { id: true, lessonId: true, code: true },
+          });
+          const lpIdByKey = new Map(
+            learningPoints.map((lp) => [
+              `${lessonCodeById.get(lp.lessonId) ?? ''}|${lp.code}`,
+              lp.id,
+            ]),
+          );
+          const lpIds = new Set(learningPoints.map((lp) => lp.id));
+          const resolveCutoff = (lessonCode: string, ref?: string | null) => {
+            if (!ref) return null;
+            return (
+              lpIdByKey.get(`${lessonCode}|${ref}`) ??
+              (lpIds.has(ref) ? ref : null)
+            );
+          };
 
-        await tx.trialSetting.deleteMany({ where: { courseId } });
-        if (manifest.course.trial?.enabled) {
-          for (const row of manifest.course.trial.lessons ?? []) {
-            const lessonId = lessonIdByCode.get(row.lessonRef);
-            if (!lessonId) continue;
-            await tx.trialSetting.create({
+          await tx.trialSetting.deleteMany({ where: { courseId } });
+          if (manifest.course.trial?.enabled) {
+            for (const row of manifest.course.trial.lessons ?? []) {
+              const lessonId = lessonIdByCode.get(row.lessonRef);
+              if (!lessonId) continue;
+              await tx.trialSetting.create({
+                data: {
+                  courseId,
+                  lessonId,
+                  videoCutoffSeconds: row.videoCutoffSeconds ?? null,
+                  textCutoffLearningPointId: resolveCutoff(
+                    row.lessonRef,
+                    row.textCutoffLearningPoint,
+                  ),
+                  status: (row.status ?? 'READY') as never,
+                },
+              });
+            }
+          }
+
+          await tx.coursePlan.updateMany({
+            where: { courseId, active: true },
+            data: { active: false },
+          });
+          for (const [index, plan] of (
+            manifest.course.pricing ?? []
+          ).entries()) {
+            await tx.coursePlan.create({
               data: {
+                id: randomUUID(),
                 courseId,
-                lessonId,
-                videoCutoffSeconds: row.videoCutoffSeconds ?? null,
-                textCutoffLearningPointId: resolveCutoff(
-                  row.lessonRef,
-                  row.textCutoffLearningPoint,
-                ),
-                status: (row.status ?? 'READY') as never,
+                name: plan.name,
+                scope: 'COURSE',
+                scopeId: courseId,
+                termMonths: plan.termMonths,
+                device: 'WEB',
+                amountMinor: plan.amountMinor,
+                currency: (plan.currency || 'usd').toLowerCase(),
+                stripeLookupKey: plan.lookupKey,
+                sortOrder: index,
+                active: true,
               },
             });
           }
-        }
 
-        await tx.coursePlan.updateMany({
-          where: { courseId, active: true },
-          data: { active: false },
-        });
-        for (const [index, plan] of (manifest.course.pricing ?? []).entries()) {
-          await tx.coursePlan.create({
+          await tx.courseAuthoringActivity.create({
             data: {
-              id: randomUUID(),
               courseId,
-              name: plan.name,
-              scope: 'COURSE',
-              scopeId: courseId,
-              termMonths: plan.termMonths,
-              device: 'WEB',
-              amountMinor: plan.amountMinor,
-              currency: (plan.currency || 'usd').toLowerCase(),
-              stripeLookupKey: plan.lookupKey,
-              sortOrder: index,
-              active: true,
+              actorEmployeeId,
+              action: HISTORY_ACTIONS.IMPORT_PACKAGE,
+              detail: {
+                packageId: manifest.packageId,
+                sourceEnvironment: manifest.source.environment ?? null,
+                sourceVersionLabel: manifest.source.sourceVersion ?? null,
+              },
             },
           });
-        }
-
-        await tx.courseAuthoringActivity.create({
-          data: {
-            courseId,
-            actorEmployeeId,
-            action: HISTORY_ACTIONS.IMPORT_PACKAGE,
-            detail: {
-              packageId: manifest.packageId,
-              sourceEnvironment: manifest.source.environment ?? null,
-              sourceVersionLabel: manifest.source.sourceVersion ?? null,
-            },
-          },
-        });
-      });
+        },
+        { timeout: 60_000 },
+      );
       return { courseId };
     } catch (error) {
       await this.rollbackMedia(courseId, mediaKeyMap);
+      throw asImportConflict(error);
+    }
+  }
+
+  // ===== Part C v2 课程包（唯一 v2 契约 SSOT）=====
+
+  /**
+   * Part C v2 包导入（新建课程）：parse→validate→deriveTiming→align 编译器管线
+   * + pc_* 实体（仓库层）+ v3 工作区快照。分类解析与全部写入同一事务。
+   */
+  private async importPartcPackage(
+    manifest: PackageManifestV2,
+    files: Map<string, Buffer>,
+    options: ImportOptions,
+  ): Promise<{ courseId: string }> {
+    const courseKey = manifest.course.courseKey;
+    const existingByCode = await this.prisma.commerceCourse.findFirst({
+      where: { code: courseKey },
+      select: { id: true, code: true },
+    });
+    if (existingByCode) {
+      if (
+        options.onConflict === 'ABORT' ||
+        options.onConflict === 'CREATE_NEW_COURSE'
+      ) {
+        throw new ImportError(
+          'PACKAGE_CONFLICT',
+          409,
+          `Course ${existingByCode.code} already exists. The Course ID must not already exist in this Admin, or the import is refused.`,
+        );
+      }
+      throw new ImportError(
+        'PACKAGE_CONFLICT',
+        409,
+        'NEW_VERSION import not implemented yet.',
+      );
+    }
+    let targetSlug = partcSlugOf(manifest);
+    const slugOwner = await this.prisma.commerceCourse.findFirst({
+      where: { slug: targetSlug },
+      select: { id: true },
+    });
+    if (slugOwner) targetSlug = await this.uniqueSlug(targetSlug);
+
+    const compiled = await this.compilePartcPackage(manifest, files);
+    const courseId = randomUUID();
+    const transfer = await this.transferPartcMedia(courseId, manifest, files);
+    try {
+      const snapshot = buildPartcVersionSnapshot(compiled, {
+        courseId,
+        slug: targetSlug,
+        mediaAssetIdByPath: transfer.assetIdByPath,
+        mediaExtensionByPath: transfer.extensionByPath,
+      });
+      await this.prisma.$transaction(
+        async (tx) => {
+          const categoryId = await this.resolvePartcCategory(tx, manifest);
+          await tx.commerceCourse.create({
+            data: {
+              id: courseId,
+              code: courseKey,
+              slug: targetSlug,
+              categoryId,
+              learningMode: snapshot.course
+                .learningMode as unknown as Prisma.CommerceCourseCreateInput['learningMode'],
+              defaultContentLanguage: snapshot.course.defaultContentLanguage,
+              learningLanguages: snapshot.course.learningLanguages,
+              lifecycleStatus: 'WORKING',
+              liveStatus: 'HIDDEN',
+              hasDraft: true,
+              draftRevision: 1,
+              trialEnabled: false,
+              localizations: {
+                create: snapshot.course.localizations.map((loc) => ({
+                  language: loc.language,
+                  title: loc.title,
+                  shortDescription: loc.shortDescription,
+                  overview: loc.overview,
+                  whatYouLearn: loc.whatYouLearn ?? [],
+                  provides: loc.provides ?? [],
+                })),
+              },
+            },
+          });
+          await this.createPartcMediaRows(tx, courseId, transfer);
+          await applyVersionSnapshotInTx(tx, courseId, snapshot);
+          await persistPartcEntities(tx, compiled, {
+            courseId,
+            uriByPath: transfer.uriByPath,
+          });
+          await tx.courseAuthoringActivity.create({
+            data: {
+              courseId,
+              actorEmployeeId: options.actorEmployeeId,
+              action: 'IMPORT',
+              detail: {
+                packageFormat: 2,
+                courseKey,
+                provenance: (manifest.provenance ??
+                  null) as unknown as Prisma.InputJsonValue,
+              },
+            },
+          });
+        },
+        { timeout: 120_000 },
+      );
+    } catch (error) {
+      await this.rollbackPartcMedia(transfer);
+      throw asImportConflict(error);
+    }
+    return { courseId };
+  }
+
+  /**
+   * Part C v2 包导入到已有课程（只替换草稿，线上版本不变）：
+   * Course ID（courseKey）必须一致；试看与价格不随 Part C 包变更。
+   */
+  private async importPartcIntoExistingCourse(
+    courseId: string,
+    manifest: PackageManifestV2,
+    files: Map<string, Buffer>,
+    actorEmployeeId: string | null,
+  ): Promise<{ courseId: string }> {
+    const existing = await this.prisma.commerceCourse.findUnique({
+      where: { id: courseId },
+      select: { id: true, code: true, slug: true },
+    });
+    if (!existing)
+      throw new ImportError('COURSE_NOT_FOUND', 404, 'Course not found.');
+    if (existing.code !== manifest.course.courseKey) {
+      throw new ImportError(
+        'PACKAGE_COURSE_ID_MISMATCH',
+        422,
+        'The Course ID in the package must match this course, or the import is refused.',
+      );
+    }
+    const compiled = await this.compilePartcPackage(manifest, files);
+    const transfer = await this.transferPartcMedia(courseId, manifest, files);
+    try {
+      const snapshot = buildPartcVersionSnapshot(compiled, {
+        courseId,
+        slug: existing.slug,
+        mediaAssetIdByPath: transfer.assetIdByPath,
+        mediaExtensionByPath: transfer.extensionByPath,
+      });
+      await this.prisma.$transaction(
+        async (tx) => {
+          await this.resolvePartcCategory(tx, manifest);
+          await this.createPartcMediaRows(tx, courseId, transfer);
+          await applyVersionSnapshotInTx(tx, courseId, snapshot);
+          await tx.commerceCourse.update({
+            where: { id: courseId },
+            data: {
+              hasDraft: true,
+              // C9：导入整包 = 显式"有草稿"状态。
+              draftRevision: { increment: 1 },
+              lifecycleStatus: 'WORKING',
+              revision: { increment: 1 },
+              revisionBy: null,
+              draftSourceType: 'IMPORT',
+              draftSourceEnvironment: manifest.provenance?.sourceEnv ?? null,
+              draftSourceVersionLabel:
+                manifest.provenance?.sourceVersionLabel ?? null,
+            },
+          });
+          await persistPartcEntities(tx, compiled, {
+            courseId,
+            uriByPath: transfer.uriByPath,
+          });
+          await tx.courseAuthoringActivity.create({
+            data: {
+              courseId,
+              actorEmployeeId,
+              action: HISTORY_ACTIONS.IMPORT_PACKAGE,
+              detail: {
+                packageFormat: 2,
+                courseKey: manifest.course.courseKey,
+                provenance: (manifest.provenance ??
+                  null) as unknown as Prisma.InputJsonValue,
+              },
+            },
+          });
+        },
+        { timeout: 120_000 },
+      );
+      return { courseId };
+    } catch (error) {
+      await this.rollbackPartcMedia(transfer);
       throw error;
     }
   }
 
+  /** Part C 编译器管线（parse→validate→deriveTiming→align）。 */
+  private async compilePartcPackage(
+    manifest: PackageManifestV2,
+    files: Map<string, Buffer>,
+  ) {
+    const templatePath = templateResourcePathOf(manifest);
+    const templateBytes = files.get(templatePath);
+    if (!templateBytes) {
+      throw new ImportError(
+        'PACKAGE_FILE_MISSING',
+        422,
+        `Template resource is missing from the package: ${templatePath}`,
+      );
+    }
+    try {
+      const workbook = decodeTemplateWorkbook(templateBytes);
+      const ir = parsePackage({
+        manifest,
+        files: files,
+        workbook,
+      });
+      const documents = await extractPartcDocuments(ir);
+      // C5 P3/C7 ③：ASR 默认兜底（env 驱动 provider）。每个视频 × 每个语言
+      // 独立派生转写工件；缺失即无 ASR 源，编译器按 ALN-7 显式报告。
+      const transcripts = await extractAsrTranscripts(ir);
+      return compilePartcPackageFromIr(ir, documents, transcripts);
+    } catch (error) {
+      if (error instanceof PartcCompileError) {
+        throw new ImportError(error.code, 422, error.message, error.report);
+      }
+      if (error instanceof PartCError) {
+        throw new ImportError(
+          error.code,
+          422,
+          error.message,
+          reportFromPartCError(error),
+        );
+      }
+      throw error;
+    }
+  }
+
+  /** C5：分类路径解析（Part C 包；不创建分类、不猜）。 */
+  private async resolvePartcCategory(
+    tx: Prisma.TransactionClient,
+    manifest: PackageManifestV2,
+  ): Promise<string | null> {
+    const path = manifest.course.categoryPath;
+    if (path === null) return null;
+    const row = await findCategoryByPath(tx, path);
+    if (!row) {
+      throw new ImportError(
+        'CATEGORY_NOT_FOUND',
+        422,
+        `Category path does not resolve to an ACTIVE category: ${path.join(' / ')}`,
+      );
+    }
+    return row.id;
+  }
+
+  /**
+   * Part C 包内资源落地：媒体按签名校验后转存；字幕/章节/DOCX 原文一并落地
+   * （审计可追溯；文档不建 CourseMediaAsset 行）。
+   */
+  private async transferPartcMedia(
+    courseId: string,
+    manifest: PackageManifestV2,
+    files: Map<string, Buffer>,
+  ): Promise<PartcMediaTransfer> {
+    const transfer: PartcMediaTransfer = {
+      uriByPath: new Map(),
+      assetIdByPath: new Map(),
+      extensionByPath: new Map(),
+      mediaMetas: [],
+      storageKeys: [],
+      mediaAssetIds: [],
+    };
+    const mediaKinds = new Set([
+      'cover',
+      'video',
+      'audio',
+      'image',
+      'model3d',
+      'thumbnail',
+    ]);
+    for (const resource of manifest.resources) {
+      if (resource.kind === 'template') continue;
+      const bytes = files.get(resource.path);
+      if (!bytes) {
+        throw new ImportError(
+          'PACKAGE_FILE_MISSING',
+          422,
+          `Package resource is missing: ${resource.path}`,
+        );
+      }
+      const assetId = randomUUID();
+      const extension = fileExtension(resource.path);
+      const storageKey = this.storage.mediaKey(courseId, assetId, extension);
+      await this.storage.putMedia(storageKey, bytes);
+      transfer.storageKeys.push(storageKey);
+      transfer.extensionByPath.set(resource.path, extension);
+      transfer.uriByPath.set(resource.path, storageKey);
+      if (!mediaKinds.has(resource.kind)) continue;
+      let validated;
+      try {
+        validated = validateMediaFile(
+          { name: baseName(resource.path), bytes },
+          this.config,
+        );
+      } catch {
+        throw new ImportError(
+          'PACKAGE_MEDIA_INVALID',
+          422,
+          `Invalid media: ${resource.path}`,
+        );
+      }
+      transfer.assetIdByPath.set(resource.path, assetId);
+      transfer.mediaAssetIds.push(assetId);
+      transfer.mediaMetas.push({
+        assetId,
+        kind: validated.kind,
+        extension: validated.extension,
+        storageKey,
+        mimeType: validated.mimeType,
+        size: validated.size,
+        originalName: validated.originalName,
+      });
+    }
+    return transfer;
+  }
+
+  private async createPartcMediaRows(
+    tx: Prisma.TransactionClient,
+    courseId: string,
+    transfer: PartcMediaTransfer,
+  ): Promise<void> {
+    for (const meta of transfer.mediaMetas) {
+      await tx.courseMediaAsset.create({
+        data: {
+          id: meta.assetId,
+          courseId,
+          kind: meta.kind as never,
+          originalName: meta.originalName,
+          mimeType: meta.mimeType,
+          extension: meta.extension,
+          size: meta.size,
+          storageKey: meta.storageKey,
+        },
+      });
+    }
+  }
+
+  private async rollbackPartcMedia(
+    transfer: PartcMediaTransfer,
+  ): Promise<void> {
+    if (transfer.mediaAssetIds.length > 0) {
+      await this.prisma.courseMediaAsset
+        .deleteMany({ where: { id: { in: transfer.mediaAssetIds } } })
+        .catch(() => undefined);
+    }
+    await Promise.all(
+      transfer.storageKeys.map((key) =>
+        this.storage.removeMedia(key).catch(() => undefined),
+      ),
+    );
+  }
+
   private snapshotFromPackage(
     manifest: PackageManifest,
-    categoryId: string | null,
     mediaKeyMap: Map<string, ImportedMediaMeta>,
   ): VersionSnapshot {
     const { course } = manifest;
     const capturedAt = new Date().toISOString();
+    // C7/I9：导入后的草稿快照同样只带稳定键路径。
+    // 已校验的 v2 包必有 categoryPath；历史暂存作业（v1 形态）才回退 category 字符串。
+    const legacyCategory = (course as { category?: unknown }).category;
+    const categoryPath =
+      course.categoryPath !== undefined
+        ? course.categoryPath
+        : typeof legacyCategory === 'string' && legacyCategory.trim()
+          ? [legacyCategory.trim()]
+          : null;
     return {
-      formatVersion: 2,
+      formatVersion: 3,
       capturedAt,
       course: {
         code: course.code,
         slug: course.slug,
-        categoryId,
+        categoryPath,
         coverAssetId: course.cover
           ? (mediaKeyMap.get(course.cover)?.assetId ?? null)
           : null,
@@ -418,39 +867,32 @@ export class PackageImporter {
     return `${root}-${Date.now().toString(36)}`;
   }
 
-  private async resolveCategory(name: string): Promise<string | null> {
-    const trimmed = (name ?? '').trim();
-    if (!trimmed) return null;
-    const existing = await this.prisma.courseCatalogueEntry.findFirst({
-      where: { parentId: null, name: { equals: trimmed, mode: 'insensitive' } },
-      select: { id: true },
-    });
-    if (existing) return existing.id;
-    const max = await this.prisma.courseCatalogueEntry.aggregate({
-      where: { parentId: null },
-      _max: { sortOrder: true },
-    });
-    try {
-      const created = await this.prisma.courseCatalogueEntry.create({
-        data: {
-          name: trimmed,
-          description: '',
-          status: 'ACTIVE',
-          sortOrder: (max._max.sortOrder ?? 0) + 1,
-        },
-        select: { id: true },
-      });
-      return created.id;
-    } catch {
-      const again = await this.prisma.courseCatalogueEntry.findFirst({
-        where: {
-          parentId: null,
-          name: { equals: trimmed, mode: 'insensitive' },
-        },
-        select: { id: true },
-      });
-      return again?.id ?? null;
+  /**
+   * C5：分类路径解析（不创建分类、不猜）。逐级在 ACTIVE 节点中按 name 或
+   * localized 任一语言显示名匹配（trim、大小写不敏感）；失败 → 整个 job
+   * CATEGORY_NOT_FOUND，消息列出未解析路径。
+   */
+  private async resolveCategoryPath(
+    db: Prisma.TransactionClient,
+    course: { categoryPath?: string[] | null; category?: unknown },
+  ): Promise<string | null> {
+    const legacyCategory = course.category;
+    const path =
+      course.categoryPath !== undefined
+        ? course.categoryPath
+        : typeof legacyCategory === 'string' && legacyCategory.trim()
+          ? [legacyCategory.trim()]
+          : null;
+    if (path === null) return null;
+    const row = await findCategoryByPath(db, path);
+    if (!row) {
+      throw new ImportError(
+        'CATEGORY_NOT_FOUND',
+        422,
+        `Category path does not resolve to an ACTIVE category: ${path.join(' / ')}`,
+      );
     }
+    return row.id;
   }
 
   private async transferMedia(
@@ -573,6 +1015,8 @@ export class PackageImporter {
         lifecycleStatus: 'WORKING',
         liveStatus: 'HIDDEN',
         hasDraft: true,
+        // C9：导入新建 = 有草稿（liveBaseRevision 默认 0）。
+        draftRevision: 1,
         trialEnabled: Boolean(course.trial?.enabled),
         localizations: {
           create: Object.entries(course.localized).map(([language, loc]) => ({
@@ -828,4 +1272,41 @@ export class PackageImporter {
     });
     return exhibitId;
   }
+}
+
+interface PartcMediaTransfer {
+  /** 资源路径 → 本环境存储 uri（含媒体/字幕/章节/DOCX）。 */
+  readonly uriByPath: Map<string, string>;
+  /** 媒体资源路径 → CourseMediaAsset id（legacy 工作区投影用）。 */
+  readonly assetIdByPath: Map<string, string>;
+  readonly extensionByPath: Map<string, string>;
+  readonly mediaMetas: ImportedMediaMeta[];
+  readonly storageKeys: string[];
+  readonly mediaAssetIds: string[];
+}
+
+/** Part C 包的 URL slug：优先导出方 annotations.slug，否则由 courseKey 机械派生。 */
+function partcSlugOf(manifest: PackageManifestV2): string {
+  const annotated = manifest.annotations?.slug;
+  if (typeof annotated === 'string' && annotated.trim() !== '') {
+    return annotated.trim().toLowerCase();
+  }
+  const key = String(manifest.course.courseKey);
+  const derived = key
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return derived || 'course';
+}
+
+function baseName(relativePath: string): string {
+  return relativePath.split('/').pop() ?? relativePath;
+}
+
+function fileExtension(relativePath: string): string {
+  const name = baseName(relativePath);
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0 || dot === name.length - 1) return 'bin';
+  return name.slice(dot + 1).toLowerCase();
 }

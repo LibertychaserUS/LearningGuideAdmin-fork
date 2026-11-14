@@ -23,6 +23,8 @@ describe('Commerce course workflow (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   const code = `E2E-WF-${Date.now()}`;
+  /** C3：创建课程必须带 ACTIVE 分类；预置 Society 由迁移幂等补种。 */
+  let categoryId: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -32,6 +34,11 @@ describe('Commerce course workflow (e2e)', () => {
     configureApp(app);
     await app.init();
     prisma = app.get(PrismaService);
+    const society = await prisma.courseCatalogueEntry.findFirstOrThrow({
+      where: { parentId: null, name: 'Society', status: 'ACTIVE' },
+      select: { id: true },
+    });
+    categoryId = society.id;
   });
 
   afterAll(async () => {
@@ -71,7 +78,7 @@ describe('Commerce course workflow (e2e)', () => {
     const agent = await signInAs(app, 'ADMIN');
     const created: SuccessResponse<{ id: string }> = await agent
       .post('/api/backoffice/courses')
-      .send({ code: `${code}-P`, title: 'Publish e2e' });
+      .send({ code: `${code}-P`, title: 'Publish e2e', categoryId });
     const id: string = created.body.data.id;
     await agent
       .post(`/api/backoffice/courses/${id}/lessons`)
@@ -134,11 +141,11 @@ describe('Commerce course workflow (e2e)', () => {
     }
   });
 
-  it('treats a draft edited back to the live content as No draft (PRD 15.1)', async () => {
+  it('keeps has-draft after editing a value back to the live content (C9 / O1)', async () => {
     const agent = await signInAs(app, 'ADMIN');
     const created: SuccessResponse<{ id: string }> = await agent
       .post('/api/backoffice/courses')
-      .send({ code: `${code}-H`, title: `${code} fingerprint` });
+      .send({ code: `${code}-H`, title: `${code} fingerprint`, categoryId });
     const id: string = created.body.data.id;
     const lesson: SuccessResponse<{ lessons: { id: string }[] }> = await agent
       .post(`/api/backoffice/courses/${id}/lessons`)
@@ -158,9 +165,11 @@ describe('Commerce course workflow (e2e)', () => {
       const v1 = await prisma.courseVersion.findFirstOrThrow({
         where: { courseId: id },
       });
+      // 诊断指纹仍保留（不参与 No draft/版本身份；C9/C0 红线）。
       expect(v1.contentHash).toMatch(/^[0-9a-f]{64}$/);
 
-      // 改了再改回原样：草稿与线上一致，显示 No draft
+      // 改了再改回原样：显式状态语义（O1）——仍然是有草稿；
+      // 内容比较/指纹不再参与 No draft。
       const edited: SuccessResponse<{ hasDraft: boolean }> = await agent
         .put(`/api/backoffice/courses/${id}/lessons/${lessonId}`)
         .send({ title: 'Uno' });
@@ -168,29 +177,24 @@ describe('Commerce course workflow (e2e)', () => {
       const reverted: SuccessResponse<{ hasDraft: boolean }> = await agent
         .put(`/api/backoffice/courses/${id}/lessons/${lessonId}`)
         .send({ title: 'One' });
-      expect(reverted.body.data.hasDraft).toBe(false);
+      expect(reverted.body.data.hasDraft).toBe(true);
       const detail: SuccessResponse<{ hasDraft: boolean }> = await agent.get(
         `/api/backoffice/courses/${id}`,
       );
-      expect(detail.body.data.hasDraft).toBe(false);
+      expect(detail.body.data.hasDraft).toBe(true);
 
-      // 标记还在但内容没变时点发布：不生成重复版本，标记被清掉
-      await prisma.commerceCourse.update({
-        where: { id },
-        data: { hasDraft: true },
-      });
-      const same: ErrorResponse = await agent
+      // C9：有草稿就生成新版本（无论内容是否与线上相同）；发布后 No draft。
+      const republished: SuccessResponse<{ versionNo: number }> = await agent
         .post(`/api/backoffice/courses/${id}/publish`)
-        .send({});
-      expect(same.status).toBe(409);
-      expect(same.body.error.code).toBe('NO_DRAFT');
-      expect(
-        await prisma.courseVersion.count({ where: { courseId: id } }),
-      ).toBe(1);
-      expect(
-        (await prisma.commerceCourse.findUniqueOrThrow({ where: { id } }))
-          .hasDraft,
-      ).toBe(false);
+        .send({})
+        .expect(200);
+      expect(republished.body.data.versionNo).toBe(2);
+      const afterPublish = await prisma.commerceCourse.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(afterPublish.hasDraft).toBe(false);
+      // C9：发布冻结 liveBaseRevision = draftRevision。
+      expect(afterPublish.draftRevision).toBe(afterPublish.liveBaseRevision);
     } finally {
       spy.mockRestore();
     }
@@ -230,7 +234,7 @@ describe('Commerce course workflow (e2e)', () => {
 
     const created: SuccessResponse<{ id: string }> = await alice
       .post('/api/backoffice/courses')
-      .send({ code: `${code}-R`, title: `${code} revision` });
+      .send({ code: `${code}-R`, title: `${code} revision`, categoryId });
     expect(created.body).toMatchObject({ error: null });
     const id: string = created.body.data.id;
     const lesson: SuccessResponse<{ lessons: { id: string }[] }> = await alice
@@ -326,7 +330,7 @@ describe('Commerce course workflow (e2e)', () => {
     const agent = await signInAs(app, 'ADMIN');
     const created: SuccessResponse<{ id: string }> = await agent
       .post('/api/backoffice/courses')
-      .send({ code: `${code}-L`, title: 'Lessons e2e' });
+      .send({ code: `${code}-L`, title: 'Lessons e2e', categoryId });
     const id: string = created.body.data.id;
 
     // 同时新建两节课：序号和默认 code 各不相同
@@ -373,7 +377,7 @@ describe('Commerce course workflow (e2e)', () => {
     const agent = await signInAs(app, 'ADMIN');
     const mine: SuccessResponse<{ id: string }> = await agent
       .post('/api/backoffice/courses')
-      .send({ code: `${code}-O`, title: 'Order e2e' });
+      .send({ code: `${code}-O`, title: 'Order e2e', categoryId });
     const other = await prisma.commerceCourse.findFirst({
       where: { code: `${code}-L` },
     });

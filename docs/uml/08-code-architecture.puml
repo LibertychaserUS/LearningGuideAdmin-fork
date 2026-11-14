@@ -1,0 +1,78 @@
+@startuml
+title 内容系统代码架构（Admin）：编译器 + 投影
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam component {
+  BackgroundColor #FDFDFD
+  BorderColor #4A6FA5
+  ArrowColor #4A6FA5
+}
+
+package "domain（纯类型与不变式，无 IO、无 Prisma）" #EDF2FA {
+  component "ids / time\nBranded: CourseKey, StageId, AssetKey, TimeMs, TimeRange" as D1
+  component "StageTree / Rendition / Annotation\n判别联合，穷尽 switch" as D2
+  component "ContentGraph 聚合\n引用完整性、真值键、语言完整性" as D3
+  component "Result<T, ParseError[]>\n错误带源坐标（sheet/row/col, JSON path）" as D4
+}
+
+package "parse（边界：源包 -> 图；纯函数）" #F6F0E8 {
+  component "package-reader\n闭合包 / manifest / 版本门禁" as P1
+  component "template-v2\nxlsx 结构（无时间列）" as P2
+  component "script-docx\ndocx -> 对话行 + H1 结构" as P3
+  component "subtitle / chapter\nSRT/VTT cue + MP4 章节轨" as P4
+  component "align / deriveTiming\n脚本↔cue -> stage 区间；置信度/拒绝" as P5
+}
+
+package "compile（图 -> 草稿/快照/包）" #F6F0E8 {
+  component "validate\n不变式统一校验器（生产端与消费端共用）" as C1
+  component "draft / publish / restore\nrevision 语义；快照不可变" as C2
+  component "package-export\nv2 包 + 派生 timing.json" as C3
+}
+
+package "persistence（Prisma 映射，无领域逻辑）" #EFEFEF {
+  component "graph-repository\n行 <-> ContentGraph 映射" as R1
+  component "CourseDraft\nJSONB graph + revision（If-Match）" as R2
+  component "CourseVersion\n不可变 snapshot JSONB" as R3
+}
+
+package "project（读模型）" {
+  component "portal-projection\n线上版本快照 -> Portal DTO" as J1
+  component "admin-read\n后台列表/编辑器视图" as J2
+}
+
+[HTTP 控制器（薄）\n解析请求/鉴权/调用服务] as HTTP
+[Portal（Next.js，只读）] as PORTAL
+
+HTTP --> P1
+HTTP --> C2
+HTTP --> J2
+HTTP --> P5
+P1 --> D1
+P2 --> D3
+P3 --> D3
+P4 --> P5
+P5 --> D3
+C1 --> D3
+C2 --> C3
+R1 --> R2
+R1 --> R3
+R1 --> D3
+J1 --> R3
+J2 --> R2
+PORTAL --> J1
+
+note right of P5
+  对齐只产出区间；失败/低置信 -> ParseError
+  不猜、不修复；内容团队补交付物
+end note
+note right of C2
+  draft：可变文档 + revision
+  publish：draft -> 不可变 snapshot
+  restore：snapshot -> draft（不反向写入）
+end note
+note bottom of R1
+  关系表只放可查询的 Course/分类/状态索引；
+  图本体以 JSONB 存 draft/snapshot，避免双写
+end note
+@enduml

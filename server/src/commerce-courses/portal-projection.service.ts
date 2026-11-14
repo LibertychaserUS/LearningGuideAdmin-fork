@@ -4,11 +4,20 @@ import {
   captureVersionSnapshot,
   type VersionSnapshot,
 } from './version-snapshot';
-import { CATEGORY_FIELDS } from './localized-fields';
-import { parseLocalized } from '../common/i18n/localized';
+import { CATEGORY_FIELDS, type CategoryField } from './localized-fields';
+import { parseLocalized, type Localized } from '../common/i18n/localized';
+import { findCategoryByPath, snapshotCategoryPath } from './category-path';
 
 type SnapshotLesson = VersionSnapshot['course']['lessons'][number];
 type SnapshotLocalization = VersionSnapshot['course']['localizations'][number];
+
+/** C1 的 Portal 分类节点（不含任何环境 UUID）。 */
+export interface CatalogueTreeNode {
+  name: string;
+  localized: Localized<CategoryField>;
+  sortOrder: number;
+  children: CatalogueTreeNode[];
+}
 
 /**
  * Portal v1 只读投影（设计文档 §22.2）：从 v2 数据重建 Portal 课程详情。
@@ -19,6 +28,46 @@ type SnapshotLocalization = VersionSnapshot['course']['localizations'][number];
 @Injectable()
 export class PortalProjectionService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * C1：Portal 分类读接口的数据源（只含 ACTIVE，按 sortOrder 升序、同序按 name）。
+   * 契约不暴露 UUID——Portal 只拿稳定键 name/localized/sortOrder/children（§4 C1）。
+   */
+  async listCategoryTree(): Promise<CatalogueTreeNode[]> {
+    const rows = await this.prisma.courseCatalogueEntry.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        localized: true,
+        sortOrder: true,
+        parentId: true,
+      },
+    });
+    const nodeById = new Map<string, CatalogueTreeNode>();
+    for (const row of rows) {
+      nodeById.set(row.id, {
+        name: row.name,
+        localized: parseLocalized(row.localized, CATEGORY_FIELDS),
+        sortOrder: row.sortOrder,
+        children: [],
+      });
+    }
+    const roots: CatalogueTreeNode[] = [];
+    for (const row of rows) {
+      const node = nodeById.get(row.id);
+      if (!node) continue;
+      if (row.parentId === null) {
+        roots.push(node);
+        continue;
+      }
+      const parent = nodeById.get(row.parentId);
+      // 父节点必须是 ACTIVE 且出现在本次结果里（I6：退场节点及其子树不投影）。
+      if (parent) parent.children.push(node);
+    }
+    return roots;
+  }
 
   async listCourses(limit = 50) {
     const rows = await this.prisma.commerceCourse.findMany({
@@ -47,9 +96,30 @@ export class PortalProjectionService {
         version.snapshotData as unknown as VersionSnapshot,
       ]),
     );
-    return rows.map((row) =>
-      this.toSummary(row, snapshotById.get(row.liveVersionId ?? '') ?? null),
+    return Promise.all(
+      rows.map(async (row) => {
+        const snapshot = snapshotById.get(row.liveVersionId ?? '') ?? null;
+        return this.toSummary(
+          row,
+          snapshot,
+          await this.categoryForSnapshot(snapshot),
+        );
+      }),
     );
+  }
+
+  /**
+   * C8：投影分类取线上版本快照的 categoryPath（发布时点），不读当前行——
+   * 草稿改分类不影响线上；显示名（localized）取当前分类行。
+   */
+  private async categoryForSnapshot(
+    snapshot: VersionSnapshot | null,
+  ): Promise<{ name: string; localized: unknown } | null> {
+    if (!snapshot) return null;
+    const path = await snapshotCategoryPath(this.prisma, snapshot);
+    if (!path || path.length === 0) return null;
+    const row = await findCategoryByPath(this.prisma, path);
+    return row ? { name: row.name, localized: row.localized } : null;
   }
 
   async getCourseById(id: string) {
@@ -79,7 +149,11 @@ export class PortalProjectionService {
     });
     if (!version) return null;
     const snapshot = version.snapshotData as unknown as VersionSnapshot;
-    return this.toDetail(row, snapshot);
+    return this.toDetail(
+      row,
+      snapshot,
+      await this.categoryForSnapshot(snapshot),
+    );
   }
 
   /** 预览投影：草稿或指定版本，仅在 Portal preview token 校验通过后调用。 */
@@ -114,7 +188,7 @@ export class PortalProjectionService {
     }
 
     return {
-      ...this.toDetail(row, snapshot),
+      ...this.toDetail(row, snapshot, await this.categoryForSnapshot(snapshot)),
       preview: {
         source: versionId ? 'version' : 'draft',
         versionLabel,
@@ -214,6 +288,7 @@ export class PortalProjectionService {
       cover: { storageKey: string } | null;
     },
     snapshot: VersionSnapshot | null,
+    category: { name: string; localized: unknown } | null,
   ) {
     const loc =
       this.pickLocalization(
@@ -229,11 +304,9 @@ export class PortalProjectionService {
       subtitle: row.subtitle ?? null,
       shortDescription: loc?.shortDescription ?? null,
       description: loc?.overview ?? null,
-      category: row.category?.name ?? null,
-      categoryLocalized: parseLocalized(
-        row.category?.localized,
-        CATEGORY_FIELDS,
-      ),
+      // C8：分类来自线上版本快照的路径，不是当前行。
+      category: category?.name ?? null,
+      categoryLocalized: parseLocalized(category?.localized, CATEGORY_FIELDS),
       level: row.level ?? null,
       tags: row.tags ?? [],
       referencePrice: row.referencePrice ?? 0,
@@ -283,9 +356,8 @@ export class PortalProjectionService {
       }>;
     },
     snapshot: VersionSnapshot,
-    media?: { coverUrl: string | null; assetUrl: (assetId: string) => string },
+    category: { name: string; localized: unknown } | null,
   ) {
-    void media;
     const loc =
       this.pickLocalization(
         snapshot.course.localizations,
@@ -310,11 +382,9 @@ export class PortalProjectionService {
       subtitle: row.subtitle ?? null,
       shortDescription: loc?.shortDescription ?? null,
       description: loc?.overview ?? null,
-      category: row.category?.name ?? null,
-      categoryLocalized: parseLocalized(
-        row.category?.localized,
-        CATEGORY_FIELDS,
-      ),
+      // C8：历史版本预览/详情用该版本快照的路径。
+      category: category?.name ?? null,
+      categoryLocalized: parseLocalized(category?.localized, CATEGORY_FIELDS),
       level: row.level ?? null,
       tags: row.tags ?? [],
       referencePrice: row.referencePrice ?? 0,

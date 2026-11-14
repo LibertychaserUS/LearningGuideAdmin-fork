@@ -44,6 +44,36 @@ jobs:
       - run: npm test -- --runInBand --passWithNoTests
         env:
           HELPDESK_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/helpdesk_test
+      # Part C P0 契约冻结（评审阻断 11）：spec 位于 src 下由默认 jest 收录，
+      # 这里再显式执行一次，保证门禁不依赖 testRegex/roots 的偶然匹配。
+      - name: Part C contract freeze (C5 P0)
+        run: npm run test:partc
+      # C5 P0 的 shell grep 门禁（与 spec 内的断言并行；真实执行 shell 断言）：
+      # 模板无时间列、Part C 域无 hash 身份字段、旧包拒绝、Plan 无 wall-clock。
+      - name: Part C grep gates (C5 P0)
+        run: |
+          set -euo pipefail
+
+          # 1) 模板契约无时间列（列名由 schema shape 派生；此 grep 兜住新增列声明）
+          if grep -nE "^[[:space:]]*['\"]?(times?|timestamps?|durations?|seconds?|minutes?|clock|ms|start|end|trigger)[A-Za-z0-9_]*['\"]?[[:space:]]*:" src/partc/contracts/template-v2.ts; then
+            echo "::error::time column declared in template v2 contract"
+            exit 1
+          fi
+
+          # 2) Part C 契约/编译器域无 hash 身份字段（C0 红线⑦；spec 内反例词表豁免）
+          if grep -RniE "(checksum|contenthash|sha-?256|sha-?1|md-?5|digest|createhash|createhmac)" src/partc --include='*.ts' --exclude='*.spec.ts'; then
+            echo "::error::hash identity identifier found in the Part C domain"
+            exit 1
+          fi
+
+          # 3) 旧包拒绝：契约只接受 formatVersion=2 字面量，不做兼容解析
+          grep -qE "formatVersion:[[:space:]]*z\.literal\(PACKAGE_FORMAT_VERSION\)" src/partc/contracts/package-manifest.ts
+
+          # 4) Plan canonical 正文无 wall-clock/locale 字段声明（C6）
+          if grep -nE "^[[:space:]]*['\"]?(createdAt|updatedAt|plannedAt|publishedAt|generatedAt|exportedAt|frozenAt|approvedAt|verifiedAt|timestamp|locale|nonce|seed|random)[A-Za-z0-9_]*['\"]?[[:space:]]*:" src/partc/contracts/plan.ts; then
+            echo "::error::wall-clock/locale field declared in the plan contract"
+            exit 1
+          fi
       - run: npm run test:scripts
 
   helpdesk-eval:
@@ -105,3 +135,44 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+  e2e:
+    name: Server e2e (PostgreSQL)
+    runs-on: ubuntu-latest
+    # The e2e suite needs the full Prisma schema, so this job applies every migration
+    # to a fresh database first, exactly like the local entrypoint
+    # (DATABASE_URL + npx prisma migrate deploy + npm run test:e2e).
+    # The migration history includes pgvector (vector(1536) + HNSW), so the service
+    # must be the pgvector image; plain postgres:16 fails with 0A000.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: learning_guide_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/learning_guide_e2e
+      # e2e 的 AI 配置加密测试需要 64 位 hex 密钥（固定测试值，不是生产密钥）。
+      AI_CONFIG_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run test:e2e -- --runInBand

@@ -4,7 +4,7 @@
 # 若本机已占用 5432 端口，可改用：POSTGRES_PORT=5433 docker compose up -d postgres
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: lgbo-postgres
     restart: unless-stopped
     environment:

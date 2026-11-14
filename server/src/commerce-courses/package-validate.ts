@@ -182,7 +182,11 @@ function validateLesson(
               `lessons.${lesson.code}.localized.${lang}.video`,
             );
           seen.add(lp.code);
-          if (typeof lp.timeSeconds !== 'number' || lp.timeSeconds < 0) {
+          // null = 明确“无时间源”（C7）；只拒绝非数字/负值，不把 null 当 0。
+          if (
+            lp.timeSeconds !== null &&
+            (typeof lp.timeSeconds !== 'number' || lp.timeSeconds < 0)
+          ) {
             out.err(
               'LEARNING_POINT_INVALID_TIME',
               `learning point ${lp.code} invalid time`,

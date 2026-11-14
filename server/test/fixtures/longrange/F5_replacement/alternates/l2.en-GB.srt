@@ -1,0 +1,439 @@
+1
+00:00:02,000 --> 00:00:16,365
+Modelling Life
+
+2
+00:00:16,366 --> 00:00:30,731
+Lesson cover image: the pitchfork bifurcation (solid = stable, dashed = unstable)
+
+3
+00:00:30,732 --> 00:00:45,097
+Pitchfork Bifurcation in a Model of Public Opinion
+
+4
+00:00:45,098 --> 00:00:59,463
+T: Now I want to talk about a new model and a new kind of bifurcation. So I’m continuing with the topic of bifurcations, and this is an interesting new kind. I am going to follow a paper by Thomas Lux, which is in the Economic Journal in 1995, called "Market Bubbles and Crashes." And this is about financial markets and the question of how do bubbles and market crashes happen.
+
+5
+00:00:59,464 --> 00:01:13,829
+Here we have a compartmental model. And in a compartmental model, the assumption is that the system dynamic is best understood by grouping the data points into separate boxes. And for this particular model, we're going to have two compartments. Lux was interested in modeling stock market crashes and bubbles and the two kinds of compartments he identified were bears and bulls: people who think the stock market is going down and people who think the stock market is going up. But a compartmental model could contain any sort of negative-positive, exclusive grouping of data points; it could be anything. It could be opposing political parties, such as left wing and right wing; it could be whatever.
+
+6
+00:01:13,830 --> 00:01:28,195
+S: So a compartmentalised model reflects the fact that there are competing elements or forces that are behind the change being investigated?
+
+7
+00:01:28,196 --> 00:01:42,561
+The two compartments of the model: the N compartment and the P compartment with the four transition arrows
+
+8
+00:01:42,562 --> 00:01:56,927
+T: Correct. In a compartmental model, we start by writing down the compartments. In ours there are two compartments: this is the N compartment and the P compartment. And then we ask the usual questions: what adds to the N compartment? What detracts from the N compartment? What adds to the P compartment? What detracts from the P compartment?
+
+9
+00:01:56,928 --> 00:02:11,293
+S: What are the four arrows that we see in the picture?
+
+10
+00:02:11,294 --> 00:02:25,659
+T: In an economic model, these four arrows would typically be births and deaths, or immigration and emigration. This would be death and/or emigration; birth and immigration, death and emigration—all of those are possible and would have to be in a complete model. But we're going to look at behaviour over a shorter-term period, so that basically no one dies. There is no death term in our model, and there is no birth term in our model. And the only thing changing is the movement between the two groups.The only changes that are going to occur in our model are the changes from N to P and the changes from P to N. So in that respect, it's a lot like a chemical reaction.
+
+11
+00:02:25,660 --> 00:02:40,025
+The two-compartment diagram with transition rates: K_NP from N to P, K_PN from P to N
+
+12
+00:02:40,026 --> 00:02:54,391
+So we have people going from N to P, and we're going to call the rate of that K sub N to P. And then we have people going from P to N, and that rate is going to be K sub P to N.
+
+13
+00:02:54,392 --> 00:03:08,757
+S: Are these the transition rates between the two opinions, those who are positive about the stock market and those who are negative?
+
+14
+00:03:08,758 --> 00:03:23,123
+T: Yes they are.
+
+15
+00:03:23,124 --> 00:03:37,489
+The differential equations for the two compartments: P′ = k_NP·N − k_PN·P and N′ = −k_NP·N + k_PN·P
+
+16
+00:03:37,490 --> 00:03:51,855
+So from this compartmental diagram, we can write the differential equation: N-prime equals what makes N go up, minus what makes N go down. What makes N go up is Ps converting to Ns at a rate K sub P to N times P. So N-prime equals K sub P to N times P. That's the Ps converting to Ns. But then, what detracts from N? What makes N go down? Ns converting to Ps is just K sub N to P times N. Similarly, P-prime is just going to be the opposite. P-prime: the positive term is K sub N to P times N, and that's the Ns converting to Ps. The negative term is the P's converting to Ns, which is K sub P to N times P. So there is a nice differential equation in the two variables N and P.
+
+17
+00:03:51,856 --> 00:04:06,221
+S: Are the rates that we have constant?
+
+18
+00:04:06,222 --> 00:04:20,587
+T: Yes they are but we haven't specified what these constants are. In fact, they're not going to be constant. But what these transition probabilities are is a way to think about K sub P to N and K sub N to P. These are the transition probabilities or the transition rates from N to P and from P to N.
+
+19
+00:04:20,588 --> 00:04:34,953
+But you'll notice something: if there's no birth and no death, then the total population is constant. And that means that the total population is N plus P. And we're saying that N plus P is a constant. And for reasons that will become clear in a minute, we’re going to define that constant as 2m. So 2m is the number of people.
+
+20
+00:04:34,954 --> 00:04:49,319
+S: Why are we defining it as 2m?
+
+21
+00:04:49,320 --> 00:05:03,685
+T: It’s because we want to use this to convert this two-variable differential equation into a single-variable differential equation. We love single-variable differential equations, because we can study them with very special methods.
+
+22
+00:05:03,686 --> 00:05:18,051
+The state variable X = (P − N) / 2m: the net balance of positive (P) over negative (N) sentiment as a proportion of total sentiment
+
+23
+00:05:18,052 --> 00:05:32,417
+So how are we going to convert this to one variable? We’re going to define a single variable. And the variable we’re going to define is X. We’re going to define it as: X = (P - N) / 2m
+
+24
+00:05:32,418 --> 00:05:46,783
+S: But what does X actually mean ?
+
+25
+00:05:46,784 --> 00:06:01,149
+T: Well it is the imbalance of positives over negatives. So we're going to call this the imbalance toward positivity. X measures whether the crowd leans positive or negative. Notice that if P equals N, that we have an equal number of positives and negatives. And in that case, when P equals N, X equals 0. So X can be negative if the negatives outweigh the positives, or X can be positive if the positives outweigh the negatives. So that is our new variable.
+
+26
+00:06:01,150 --> 00:06:15,515
+Converting the two-variable equation into a single-variable equation: X′ = (1/2m)(P′ − N′) = (1/m)(k_NP·N − k_PN·P)
+
+27
+00:06:15,516 --> 00:06:29,881
+Now we need to use that new variable to convert this two-variable equation into a single-variable equation. So first of all, if X is equal to (P - N) / 2m, then we can just differentiate that expression and say: X-prime = (1 / 2m) × (P-prime - N-prime) Now we know what P-prime and N-prime are. Let's put them in: (1 / 2m) × [K sub N to P × N - K sub P to N × P - (K sub P to N × P - K sub N to P × N)]. So what have we got here? We have K sub N to P times N, plus K sub N to P times N. So let's just have a 2 there. And then we have minus K sub P to N times P, minus K sub P to N times P. Let's have minus 2 there and take that out also. Now we can get rid of that 2, and we have: X-prime = (1 / m) × [K sub N to P × N - K sub P to N × P].
+
+28
+00:06:29,882 --> 00:06:44,247
+S: But even after doing all that we still have N and P in our equation?
+
+29
+00:06:44,248 --> 00:06:58,613
+T: Right so now we need to find out what K sub N to P and K sub P to N are, and then get N and P out of that equation in terms of X, which is what we will now do. So we're making progress in laying out this differential equation. So now we have the beginnings of a differential equation for X, but we still have a lot of non-X terms in there, and we have to get rid of them.
+
+30
+00:06:58,614 --> 00:07:12,979
+S: What assumptions do we make about the transition rates?
+
+31
+00:07:12,980 --> 00:07:27,345
+Deriving the form of the transition rate K_NP: from “not constant” to K_NP = v·e^(aX), with K_PN = v·e^(−aX)
+
+32
+00:07:27,346 --> 00:07:41,711
+T: Well what are we are going to say about K sub N to P and K sub P to N? First of all, they're not constants. K sub N to P is the transition probability or the transition frequency or the rate constant, if you will, transition from negative to positive is going to depend on the imbalance towards positive. We're going to assume here the shape of this function is going to be an increasing function of X.
+
+33
+00:07:41,712 --> 00:07:56,077
+S: So the more positive the general mood, the more likely people are to switch to positive.
+
+34
+00:07:56,078 --> 00:08:10,443
+T: Yes. We're also going to assume that K sub N to P grows exponentially with X. And we're going to assume a model in which K sub N to P grows exponentially with X. We need to just put a constant in front of that, but that constant is going to drop out in a minute. So K sub N to P is an exponentially growing function of the imbalance towards positivity. This is often called the bandwagon effect.
+
+35
+00:08:10,444 --> 00:08:24,809
+The idea of the bandwagon effect is: the more people that are on the bandwagon, the more people want to join the bandwagon. And so it's a positive-feedback kind of term, which you see from the shape of the math. And this is postulating a bandwagon effect. And that parameter, a, is just going to be the strength of the bandwagon effect.
+
+36
+00:08:24,810 --> 00:08:39,175
+S: What about the other direction?
+
+37
+00:08:39,176 --> 00:08:53,542
+T: Well conversely, we need a K sub P to N. And that's going to be the transition from positive to negative. That also needs to be a function of X, but it needs to be a declining function of X. And so we're going to assume e to the minus aX. And then we need a constant in there, where we're going to assume that K sub P to N is a negative bandwagon effect: that the more people are attracted, the fewer people will be transitioning from P to N.
+
+38
+00:08:53,543 --> 00:09:07,908
+S: So we will see that one rate rises and the other one falls then
+
+39
+00:09:07,909 --> 00:09:22,274
+T: Exactly. We now have K sub N to P and K sub P to N in terms of X and parameters. Now we just need to get N and P out of there. In order to get N and P in terms of X, we just need to do a little algebraic manipulation. To do that we need to think about why does one rate rise and the other fall with X?
+
+40
+00:09:22,275 --> 00:09:36,640
+Expressing N and P in terms of X: P = m(1 + X), N = m(1 − X), giving X′ = k_NP·(1 − X) − k_PN·(1 + X), then X′ = (1 − X)·v·e^(aX) − (1 + X)·v·e^(−aX)
+
+41
+00:09:36,641 --> 00:09:51,006
+So let's remember what X is. Remember the definition of X: it's (P - N) / 2m. So what is 1 plus X? 1 plus X is going to be 1—which we write in the form (P - N) / 2m, which is equal to (2m + P - N) / 2m. So we have 1 plus X is equal to (2m + P - N) / 2m.
+
+42
+00:09:51,007 --> 00:10:05,372
+T: Well let's work on that a little bit. 2m is of course, by definition, N plus P. So now we have (N + P + P - N) / 2m. And the N's cancel, and that's 2P / 2m, or P / m. So now we're going to rewrite this equation a little bit. We’re going to pull that M into the equation and write it as: K sub N to P times (N / m) minus K sub P to N times (P / m). And that's X-prime.
+
+43
+00:10:05,373 --> 00:10:19,738
+And now P / m. We know that that is 1 plus X. By the same style of argument, it's easy to show that 1 minus X is equal to 1 minus (P - N) / 2m. And that's going to be (2m - P - N) / 2m. And that, when we start substituting. This is going to be (P + N - P + N) is 2N / 2m. So that's N / m is equal to 1 minus X. And now we can substitute all of those in there.
+
+44
+00:10:19,739 --> 00:10:34,104
+S: So now everything we have can be written in terms of X then.
+
+45
+00:10:34,105 --> 00:10:48,470
+T: Exactly. So now we take our basic differential equation here—and of course, that should have been over m because we're going to be substituting it in—and now we can say: X-prime = K sub N to P × (N / m) - K sub P to N × (P / m)
+
+46
+00:10:48,471 --> 00:11:02,836
+But we said that K sub N to P is equal to V × e^(a × X), and that is going to be multiplied by N / m, which is 1 minus X. And then we have minus K sub P to N times P / m. Well, K sub P to N is V × e^(-a × X)—that's K sub P to N—and then P / m is 1 plus X.
+
+47
+00:11:02,837 --> 00:11:17,202
+S: So the full equation is now given in one variable then.
+
+48
+00:11:17,203 --> 00:11:31,568
+T: Correct. So look at what we have here. We have a differential equation in the single variable: X-prime = V × [(1 - X) × e^(aX) - (1 + X) × e^(-aX)]
+
+49
+00:11:31,569 --> 00:11:45,934
+This is X, but we also have 2 constants and 2 parameters. This is a complete differential equation in terms of those parameters. And now the question is: what is this system going to do and what behavior does that predict? And it's hard, because those are very nonlinear equations. It's far from obvious what behavior is predicted.
+
+50
+00:11:45,935 --> 00:12:00,300
+But of course, what we're going to do first is find the equilibrium points—as always. So we know how to do that. We said X-prime equals zero—definition of an equilibrium point. So the first thing we know, if we set this equal to zero, the V drops out. We just divide by V.
+
+51
+00:12:00,301 --> 00:12:14,666
+S: So by doing this, the equilibrium condition simplifies?
+
+52
+00:12:14,667 --> 00:12:29,032
+T: Correct. So now we're looking for places where: (1 - X) × e^(a X) = (1 + X) × e^(-aX)
+
+53
+00:12:29,033 --> 00:12:43,398
+And that's still hard. You can't solve that paper-and-pencil. Those are nasty nonlinear equations. But what we can do is use a graphing calculator and solve this graphically: plot these two and then ask where they intersect, or just plot them overall as a vector field.
+
+54
+00:12:43,399 --> 00:12:57,764
+The vector field X′ versus X for a = 0.8 (black), a = 1.5 (red) and a = 2.2 (blue), with the corresponding state-space arrow diagrams
+
+55
+00:12:57,765 --> 00:13:12,130
+We are going to do it the second way. We're going to plot this vector field in a classic vector field diagram where we have X and X prime on our axes. Now we're going to take a couple of different values of the parameter a. For example, we’re going to let a equal 0.5, which is a bit of a bandwagon effect but not a gigantic one. When a is equal to 0.5, we graph this expression, and it looks like this: zero. And you see how many equilibrium points it has—namely, one. And then if we ask you: stable or unstable? You use the method of linearization. The slope there is negative and we therefore have a stable equilibrium point.
+
+56
+00:13:12,131 --> 00:13:26,496
+S: So with weak bandwagon pressure, we must have a balanced stable state.
+
+57
+00:13:26,497 --> 00:13:40,862
+T: Exactly. We want to point out that it's a stable equilibrium point at the value X equals zero. And remember that X is defined as the imbalance towards positivity. So when X equals zero, P equals N, which means the two opinions are equally balanced. That's what P equals N means: the number of P's is the same as the number of N's. P and N are equally balanced. That is a stable equilibrium point.
+
+58
+00:13:40,863 --> 00:13:55,228
+The resulting state space is going to look like that—that's X state space with the vector field on it. There is the stable equilibrium. And what this says is: for this value of the strength of the bandwagon effect, there is going to be one stable equilibrium, and it's going to be at a balanced state where negatives and positives are equal.
+
+59
+00:13:55,229 --> 00:14:09,594
+S: But what happens when the bandwagon effect gets stronger?
+
+60
+00:14:09,595 --> 00:14:23,960
+T: Well let's ask: what happens for a different a? We’re now going to plot a equals 1.5 and 2.2. And when we plot a equals 1.5 and 2.2, we plot this equation—for a equals 1.5—we get a different shape of curve. The curves now looks like this.
+
+61
+00:14:23,961 --> 00:14:38,326
+S: Does the equilibrium structure change?
+
+62
+00:14:38,327 --> 00:14:52,692
+T: Yes it does. And what does that say? Well, notice: how many equilibrium points we have for a equals 1.5 and 2.2? Well, we still have zero. But now we have two new equilibrium points: at positive X, and another one at negative X.
+
+63
+00:14:52,693 --> 00:15:07,058
+And what has happened to the stability of the equilibrium points? Method of linearization: this slope is positive. That means that that equilibrium point is unstable.
+
+64
+00:15:07,059 --> 00:15:21,424
+Let's redraw state space here. Now this is zero. The equilibrium point at zero has a positive slope—that means it's unstable. These two equilibrium points have a negative slope—that means that they are stable.
+
+65
+00:15:21,425 --> 00:15:35,790
+S: So the centre becomes unstable and the outer equilibria become stable then.
+
+66
+00:15:35,791 --> 00:15:50,156
+T: Exactly. So look at what we now have. We have an unstable equilibrium point at zero. The centre is now unstable. And instead, we have two new stable equilibrium points at all positive or all negative.
+
+67
+00:15:50,157 --> 00:16:04,522
+So from the mathematical modeling point of view, we have come up with an interesting conclusion, which is:
+
+68
+00:16:04,523 --> 00:16:18,888
+If the bandwagon effect is weak, there is only a single equilibrium point, and it's stable. And that equilibrium point is a balanced opinion.
+
+69
+00:16:18,889 --> 00:16:33,254
+If the bandwagon effect is strong—in particular, if a is bigger than 1—the centre is no longer stable. And now we have two extremes that are the only stable points of view—the only stable equilibria of the system.
+
+70
+00:16:33,255 --> 00:16:47,620
+Lux uses it as a model of a bubble—that is to say, all positives—or crash, which is the opposite, all negatives. If you have the slightest little imbalance towards negativity, the whole thing is going to go negative. If you have the slightest little imbalance towards positivity, the whole thing is going to go positive. So this is a model, as Lux uses it, of bubbles and crashes. But more generally speaking, we can view this as a model of the emergence of political polarization.
+
+71
+00:16:47,621 --> 00:17:01,986
+S: What has a model of the stock market to do with political polarisation?
+
+72
+00:17:01,987 --> 00:17:16,352
+T: Because what this model says is: you have this feedback term—a positive feedback term here—that is the term that says "I want to be with the majority." What is the strength of my wanting to be with the majority? How much positive feedback is being given to me in my positive or negative attitude? One of the things you could say would increase the value of a is the emergence of cable TV. When there were only broadcasts, there was only the centre. There was only Walter Cronkite, and Walter Cronkite gave you the centre opinion. And the centre was stable. With the rise of cable TV, there is reinforcement of positive and negative attitudes. A becomes greater than one and now we have the emergence of political polarization explained purely structurally by the change in that parameter.
+
+73
+00:17:16,353 --> 00:17:30,718
+From one stable equilibrium to three (S-U-S) as a grows past 1: the vector field X′ versus X, with the stability pattern of each case
+
+74
+00:17:30,719 --> 00:17:45,085
+So what has happened here mathematically is clearly a bifurcation. A parameter—namely, a—passed through a critical point and the number and stability of equilibrium points changed. That's the definition of a bifurcation.
+
+75
+00:17:45,086 --> 00:17:59,451
+In particular, it changed from one stable at zero, to three: stable-unstable-stable. And that's for a greater than one. And so that clearly is a bifurcation.
+
+76
+00:17:59,452 --> 00:18:13,817
+S: Which bifurcation is this?
+
+77
+00:18:13,818 --> 00:18:28,183
+T: Well you see the S-U-S: the stable-unstable-stable. And you remember that a little bit from saddle-node bifurcation. And you go, "Oh, maybe this is a saddle-node bifurcation." But then you look closely and you see it isn't. Because in a saddle-node bifurcation, we ended up with an S-U-S, but the S was always stable. And then, as the parameter passed through the critical point—like in the lac operon—you had the birth of a new pair, and the new pair was the unstable and the stable. And that's how you got this.
+
+78
+00:18:28,184 --> 00:18:42,549
+S: How is this different though?
+
+79
+00:18:42,550 --> 00:18:56,915
+T: Well this is very different. This is not the stable equilibrium remaining stable and a new pair is created. The configuration here is: the old stable equilibrium became unstable, flanked by two new stable equilibria. Those stable equilibria did not exist before the bifurcation. And the one that was stable has now become unstable. So this is a very different bifurcation.
+
+80
+00:18:56,916 --> 00:19:11,281
+The bifurcation diagram of the pitchfork bifurcation: for a > 1 the stable equilibrium at zero becomes unstable (dashed) and two stable branches appear
+
+81
+00:19:11,282 --> 00:19:25,647
+Let's make the bifurcation diagram. So as you know, in a bifurcation diagram, we're going to put the parameter value there, and then we're going to put state space here and draw the location and stability of the equilibrium. For a less than 1, we have a single equilibrium at 0, and it is going to be stable. For a bigger than 1, the equilibrium at X equals 0 is now going to be unstable.
+
+82
+00:19:25,648 --> 00:19:40,013
+Conversely, you had no equilibria here—for a less than 1, you had no equilibria except that one stable one. But now, as a gets bigger than 1, we have a new pair of stable equilibria, as a gets larger and larger, that thing goes out more and more. The resulting bifurcation diagram is called a pitchfork bifurcation. It's called a pitchfork bifurcation because of a painting where the old couple is holding a pitchfork.
+
+83
+00:19:40,014 --> 00:19:54,379
+In a pitchfork bifurcation, what happens is exactly what you see here: a stable equilibrium becomes unstable, and two stable equilibria are created on either side of the previously stable equilibrium point. This is a new kind of bifurcation called a pitchfork bifurcation.
+
+84
+00:19:54,380 --> 00:20:08,745
+Transcritical Bifurcation
+
+85
+00:20:08,746 --> 00:20:23,111
+T: So there is one more bifurcation, and then we will have completed all the types of bifurcations that only involve equilibrium points. We've covered all of them. And it's a kind of bifurcation that occurs, for example, in the equation for the Allee effect.
+
+86
+00:20:23,112 --> 00:20:37,477
+The Allee-effect model X′ = 0.1X(X/a − 1)(1 − X/k), with its terms explained
+
+87
+00:20:37,478 --> 00:20:51,843
+Now let's remind ourselves first of all what these terms mean. This is the birth term—that's a birth rate. We chose the value 0.1; it's the per capita birth rate. This is the carrying capacity or the crowding factor, where of course K is the carrying capacity. X over A minus 1 is the threshold effect of the minimum size that you need to be viable. If X is less than that minimum size, then this is less than 1, which means they're going to go back to 0. Whereas if X is bigger than A, then that's positive, and it means you're going to grow.
+
+88
+00:20:51,844 --> 00:21:06,209
+S: So if this is describing say an animal population, it means that the population varies between a minimum and maximum size?
+
+89
+00:21:06,210 --> 00:21:20,575
+State space with the Allee effect for a < k: the equilibrium points at 0, a and k, with their stability
+
+90
+00:21:20,576 --> 00:21:34,941
+T: Yes. So if we look at this in state space: A is the threshold, K is the carrying capacity. If we examine the stability of the equilibrium points, you see that:
+
+91
+00:21:34,942 --> 00:21:49,307
+If it's less than A, the vector field is negative, because this is always positive (that term is always positive). If X is less than A, this term is negative, and this term is positive. So we've got positive, positive, negative—that's negative.
+
+92
+00:21:49,308 --> 00:22:03,673
+If X is bigger than A, this is positive. This is positive because it's less than K, and that's always positive. So the vector field there is positive.
+
+93
+00:22:03,674 --> 00:22:18,039
+S: What about for large values of X?
+
+94
+00:22:18,040 --> 00:22:32,405
+T: When X is bigger than K, X / K is bigger than 1, this term becomes negative, and we have a stable equilibrium point. 0 is unstable, A is unstable and K is stable. And that's the Allee effect. Now what we want to do is: we want to look at the effect of changing A. A is going to become a parameter, and we want to move it around. In particular, we had assumed that A is less than K. But now we want to consider the case in which A is actually bigger than K—in other words, the minimal cohort size necessary to grow, which is when A bigger than the carrying capacity of the environment.
+
+95
+00:22:32,406 --> 00:22:46,771
+State space with the Allee effect for a > k: the equilibrium points at 0, k and a, with their stability
+
+96
+00:22:46,772 --> 00:23:01,137
+T: Well, the situation changes. Let's make our bifurcation diagram and our state space. Here is K, and here is A. A is now bigger than K. IIf X is less than K and therefore also less than A—X is less than K means that this is less than one, so this is positive. This is always positive. And if X is less than A, this is less than 1, minus 1—that's negative. It's positive, positive, negative—that's negative. Conversely, if X is between K and A, then X is bigger than K, so this becomes negative. This is still negative. Now we have positive, negative, negative—so this becomes positive. If X is bigger than A, this is positive, this is negative, this is positive, and we have a negative.
+
+97
+00:23:01,138 --> 00:23:15,503
+S: So stability changes as A moves past K then.
+
+98
+00:23:15,504 --> 00:23:29,869
+T: Exactly. So now we have a funny situation: the carrying capacity is now unstable, because it's less than the minimum size necessary to survive—the minimum size, in terms of numbers, necessary to survive. So now we have a positive equilibrium, a stable equilibrium and an unstable equilibrium. And this is, as always, a stable equilibrium at zero.
+
+99
+00:23:29,870 --> 00:23:44,235
+S: So what does the bifurcation look like as A changes?
+
+100
+00:23:44,236 --> 00:23:58,601
+The two cases compared, a < k and a > k, each with its state-space arrow diagram
+
+101
+00:23:58,602 --> 00:24:12,967
+T: To answer this, we want to make a bifurcation diagram. So these are the two situations for the Allee effect. And, as we're varying this parameter A:
+
+102
+00:24:12,968 --> 00:24:27,333
+If A is less than K, we have a stable equilibrium at K and the unstable threshold at A.
+
+103
+00:24:27,334 --> 00:24:41,699
+If A is bigger than K, K is no longer a stable equilibrium, and the only stable equilibrium is going to be at A—which is larger than the carrying capacity of the environment.
+
+104
+00:24:41,700 --> 00:24:56,065
+That's bad news for that species, because the minimum population size for survival is bigger than the carrying capacity of the environment. In other words, you need a bigger population than the environment can support, so you are not going to do well.
+
+105
+00:24:56,066 --> 00:25:10,431
+But now let's notice an interesting thing about the bifurcation that just occurred. And then we'll draw the bifurcation diagram.
+
+106
+00:25:10,432 --> 00:25:24,797
+Definition of a bifurcation: a change in the number or stability of equilibrium points
+
+107
+00:25:24,798 --> 00:25:39,163
+We define a bifurcation as a change in the number or stability of equilibrium points. And now we look at this and we say: well, how many equilibrium points did we have when A was less than K? Well, we had three. How many equilibrium points do we have when A is bigger than K? Well, we also have three. We haven't gained or lost equilibrium points, but their stability has changed.
+
+108
+00:25:39,164 --> 00:25:53,529
+The transcritical bifurcation diagram: the equilibria X = k and X = a exchange stability at a = k (left: with vector field; right: stability marked)
+
+109
+00:25:53,530 --> 00:26:07,895
+So let's make the bifurcation diagram. We're going to put the parameter A on that axis. And as always, on the y-axis, we're going to put the state space, X. So no matter what the value of A is, we will always have a stable equilibrium at zero. Now let's follow what happens as A increases. For A, we have to put the value K right there. Now, as A increases, you see that the location of the equilibrium point, the unstable equilibrium point at A, gets larger and larger. This is just going to increase linearly with A, until that point.
+
+110
+00:26:07,896 --> 00:26:22,263
+Now look at point K. That was always stable until A got bigger than K. When A got bigger than K, the A equilibrium becomes stable, and the K equilibrium becomes unstable.

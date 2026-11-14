@@ -11,6 +11,7 @@ import {
   Req,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -33,6 +34,7 @@ import { sendMedia } from './media-stream';
 import { CourseStorageService } from './storage.service';
 import { DraftRevisionInterceptor } from './draft-revision';
 import type { BackofficeRequest } from '../backoffice/nest/request-context';
+import { CourseCapabilityGuard } from './course-capability.guard';
 
 function actor(request: BackofficeRequest): string | null {
   return request.employee?.employeeId ?? null;
@@ -52,6 +54,7 @@ function wrap<T>(fn: () => Promise<T>): Promise<T> {
  * RBAC 见 backoffice route-access：courses/* 走 knowledge 菜单，导入导出要求 FULL。
  */
 @Controller('backoffice/courses')
+@UseGuards(CourseCapabilityGuard)
 export class CommerceCoursesController {
   constructor(
     private readonly courses: CommerceCoursesService,

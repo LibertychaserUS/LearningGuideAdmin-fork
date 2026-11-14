@@ -1,0 +1,257 @@
+{
+  "courseKey": "modeling-life",
+  "categoryPath": [
+    "Science"
+  ],
+  "titleEn": "Modeling life",
+  "titleZh": "建模生命",
+  "shortDescriptionEn": "See how mathematics models life, from population growth to neural activity and disease, using Euler's method.",
+  "shortDescriptionZh": "了解数学如何为生命建模：从种群增长到神经活动与疾病，使用欧拉方法。",
+  "overviewEn": "Centred on dynamical systems and feedback, this course shows how differential equations underpin homeostasis, population dynamics, neural activity and disease.",
+  "overviewZh": "本课程以动力系统与反馈为核心，说明微分方程如何支撑稳态、种群动态、神经活动与疾病建模。",
+  "whatYouLearnEn": "Model biological systems mathematically; simulate nonlinear dynamics with Euler's method; understand positive and negative feedback.",
+  "whatYouLearnZh": "用数学为生物系统建模；用欧拉方法模拟非线性动力学；理解正反馈与负反馈。",
+  "providesEn": "Video and text dual-mode learning; reference exhibits; AI learning assistant; bilingual Chinese/English.",
+  "providesZh": "视频与文本双模式学习；参考展品；AI 学习助手；中英双语。",
+  "learningLanguages": [
+    "en-GB",
+    "zh-CN"
+  ],
+  "studyMode": "both",
+  "lessons": [
+    {
+      "code": "L1",
+      "order": 1,
+      "titleEn": "State Spaces, Vector Spaces and Trajectories",
+      "titleZh": "状态空间、向量空间与轨迹",
+      "descEn": "A system can be thought of as a collection of states at different times.",
+      "descZh": "系统可以被看作不同时刻状态的集合。",
+      "learningPoints": [
+        {
+          "code": "1.1",
+          "titleEn": "State Variables and State Spaces",
+          "titleZh": "状态变量与状态空间"
+        },
+        {
+          "code": "1.2",
+          "titleEn": "Defining Vectors",
+          "titleZh": "向量的定义"
+        },
+        {
+          "code": "1.3",
+          "titleEn": "State Space Rules for Operating with Vectors",
+          "titleZh": "状态空间中的向量运算规则"
+        },
+        {
+          "code": "1.4",
+          "titleEn": "Vectors And Vector Spaces",
+          "titleZh": "向量与向量空间"
+        },
+        {
+          "code": "1.5",
+          "titleEn": "Vectors and Trajectories Change in State Space, Time Series Translation",
+          "titleZh": "向量与轨迹：状态空间中的变化，时序转换"
+        }
+      ],
+      "exhibits": [
+        {
+          "code": "1.1",
+          "titleEn": "Constellation diagram used as an introductory illustration",
+          "titleZh": "用于开篇引入的星座连线图"
+        },
+        {
+          "code": "1.2",
+          "titleEn": "A cup of coffee described by four state variables (T, W, V, C): temperature = 63.1 °C, weight = 128 g, volume = 470 ml, caffeine concentration = 20 mg/oz",
+          "titleZh": "一杯咖啡由四个状态变量 (T, W, V, C) 描述：温度 63.1 °C、重量 128 g、体积 470 ml、咖啡因浓度 20 mg/oz"
+        },
+        {
+          "code": "1.3",
+          "titleEn": "States Have Units",
+          "titleZh": "状态具有单位"
+        },
+        {
+          "code": "1.4",
+          "titleEn": "Three examples of one-dimensional state spaces: voltage, population size, and the fraction of a wolf population that has black fur",
+          "titleZh": "一维状态空间的三个例子：电压、种群数量，以及狼群中黑毛个体的比例"
+        },
+        {
+          "code": "1.5",
+          "titleEn": "Dynamic System and State Variable",
+          "titleZh": "动态系统与状态变量"
+        },
+        {
+          "code": "1.6",
+          "titleEn": "A one-dimensional state axis: the state is X = 4 at time t₁ and X = 6 at time t₂",
+          "titleZh": "一维状态轴：时刻 t₁ 状态为 X = 4，时刻 t₂ 状态为 X = 6"
+        },
+        {
+          "code": "1.7",
+          "titleEn": "Three two-dimensional state spaces: shark–tuna space, insulin–glucose space, and susceptible–infected space",
+          "titleZh": "三个二维状态空间：鲨鱼–金枪鱼空间、胰岛素–血糖空间，以及易感–感染人群空间"
+        },
+        {
+          "code": "1.8",
+          "titleEn": "A three-dimensional state space with shark, tuna and plankton axes, and a state vector drawn from the origin",
+          "titleZh": "以鲨鱼、金枪鱼、浮游生物为轴的三维状态空间，并画出一个从原点出发的状态向量"
+        },
+        {
+          "code": "1.9",
+          "titleEn": "A point (3, 7) in the shark–tuna plane, shown as a dot (left) and as an arrow from the origin (right)",
+          "titleZh": "鲨鱼–金枪鱼平面上的点 (3, 7)：左图为黑点表示，右图为从原点出发的箭头表示"
+        },
+        {
+          "code": "1.10",
+          "titleEn": "Two Vector Operations",
+          "titleZh": "向量的两种运算"
+        },
+        {
+          "code": "1.11",
+          "titleEn": "Vector addition: the green vector (1, 3) plus the blue vector (8, 4) gives the red resultant vector",
+          "titleZh": "向量加法：绿色向量 (1, 3) 加上蓝色向量 (8, 4)，得到红色的合向量"
+        },
+        {
+          "code": "1.12",
+          "titleEn": "Scalar multiplication of a vector A by 2, 0.5, −1 and −0.5",
+          "titleZh": "向量 A 与 2、0.5、−1 和 −0.5 相乘的标量乘法"
+        },
+        {
+          "code": "1.13",
+          "titleEn": "Real Numbers / Complex Numbers",
+          "titleZh": "实数 / 复数"
+        },
+        {
+          "code": "1.14",
+          "titleEn": "State Spaces of Increasing Dimension (ℝ, ℝ², ℝ³, ℝⁿ)",
+          "titleZh": "维度递增的状态空间（ℝ、ℝ²、ℝ³、ℝⁿ）"
+        },
+        {
+          "code": "1.15",
+          "titleEn": "Change of state on a one-dimensional temperature axis: the state point moves from T₁ (at t₁) to T₂ (at t₂)",
+          "titleZh": "一维温度轴上的状态变化：状态点从 T₁（时刻 t₁）移动到 T₂（时刻 t₂）"
+        },
+        {
+          "code": "1.16",
+          "titleEn": "The Romeo–Juliet plane with states (L, L), (H, H) and (H, L): positive is love, negative is hate",
+          "titleZh": "罗密欧–朱丽叶平面：状态 (L, L)、(H, H) 与 (H, L)，正值表示爱，负值表示恨"
+        },
+        {
+          "code": "1.17",
+          "titleEn": "Oscillations in the populations of sharks and tuna over time",
+          "titleZh": "鲨鱼与金枪鱼种群随时间的振荡"
+        },
+        {
+          "code": "1.18",
+          "titleEn": "Key Concepts",
+          "titleZh": "关键概念"
+        }
+      ]
+    },
+    {
+      "code": "L2",
+      "order": 2,
+      "titleEn": "Pitchfork Bifurcation",
+      "titleZh": "叉式分岔",
+      "descEn": "A new model and a new kind of bifurcation.",
+      "descZh": "一个新模型和一种新的分岔。",
+      "learningPoints": [
+        {
+          "code": "2.1",
+          "titleEn": "Pitchfork Bifurcation in a Model of Public Opinion",
+          "titleZh": "舆论模型中的叉式分岔"
+        },
+        {
+          "code": "2.2",
+          "titleEn": "Transcritical Bifurcation",
+          "titleZh": "跨临界分岔"
+        }
+      ],
+      "exhibits": [
+        {
+          "code": "2.1",
+          "titleEn": "Lesson cover image: the pitchfork bifurcation (solid = stable, dashed = unstable)",
+          "titleZh": "本课封面图：叉式分岔（实线为稳定，虚线为不稳定）"
+        },
+        {
+          "code": "2.2",
+          "titleEn": "The two compartments of the model: the N compartment and the P compartment with the four transition arrows",
+          "titleZh": "模型的两个仓室：N 仓室与 P 仓室，以及四条转移箭头"
+        },
+        {
+          "code": "2.3",
+          "titleEn": "The two-compartment diagram with transition rates: K_NP from N to P, K_PN from P to N",
+          "titleZh": "两仓室图与转移速率：K_NP（从 N 到 P）、K_PN（从 P 到 N）"
+        },
+        {
+          "code": "2.4",
+          "titleEn": "The differential equations for the two compartments: P′ = k_NP·N − k_PN·P and N′ = −k_NP·N + k_PN·P",
+          "titleZh": "两个仓室的微分方程：P′ = k_NP·N − k_PN·P，N′ = −k_NP·N + k_PN·P"
+        },
+        {
+          "code": "2.5",
+          "titleEn": "The state variable X = (P − N) / 2m: the net balance of positive (P) over negative (N) sentiment as a proportion of total sentiment",
+          "titleZh": "状态变量 X = (P − N) / 2m：正情绪（P）对负情绪（N）的净差额占总情绪的比例"
+        },
+        {
+          "code": "2.6",
+          "titleEn": "Converting the two-variable equation into a single-variable equation: X′ = (1/2m)(P′ − N′) = (1/m)(k_NP·N − k_PN·P)",
+          "titleZh": "把双变量方程化为单变量方程：X′ = (1/2m)(P′ − N′) = (1/m)(k_NP·N − k_PN·P)"
+        },
+        {
+          "code": "2.7",
+          "titleEn": "Deriving the form of the transition rate K_NP: from “not constant” to K_NP = v·e^(aX), with K_PN = v·e^(−aX)",
+          "titleZh": "推导转移速率 K_NP 的形式：从“不是常数”到 K_NP = v·e^(aX)，以及 K_PN = v·e^(−aX)"
+        },
+        {
+          "code": "2.8",
+          "titleEn": "Expressing N and P in terms of X: P = m(1 + X), N = m(1 − X), giving X′ = k_NP·(1 − X) − k_PN·(1 + X), then X′ = (1 − X)·v·e^(aX) − (1 + X)·v·e^(−aX)",
+          "titleZh": "用 X 表示 N 与 P：P = m(1 + X)、N = m(1 − X)，得到 X′ = k_NP·(1 − X) − k_PN·(1 + X)，进而 X′ = (1 − X)·v·e^(aX) − (1 + X)·v·e^(−aX)"
+        },
+        {
+          "code": "2.9",
+          "titleEn": "The vector field X′ versus X for a = 0.8 (black), a = 1.5 (red) and a = 2.2 (blue), with the corresponding state-space arrow diagrams",
+          "titleZh": "a = 0.8（黑）、a = 1.5（红）、a = 2.2（蓝）时的向量场（X′ 对 X），以及对应的状态空间箭头示意"
+        },
+        {
+          "code": "2.10",
+          "titleEn": "From one stable equilibrium to three (S-U-S) as a grows past 1: the vector field X′ versus X, with the stability pattern of each case",
+          "titleZh": "当 a 越过 1 时，从一个稳定平衡变为三个（S-U-S）：向量场（X′ 对 X）及各情形的稳定性格局"
+        },
+        {
+          "code": "2.11",
+          "titleEn": "The bifurcation diagram of the pitchfork bifurcation: for a > 1 the stable equilibrium at zero becomes unstable (dashed) and two stable branches appear",
+          "titleZh": "叉式分岔的分岔图：a > 1 时零点处的稳定平衡失稳（虚线），并出现两个稳定分支"
+        },
+        {
+          "code": "2.12",
+          "titleEn": "The Allee-effect model X′ = 0.1X(X/a − 1)(1 − X/k), with its terms explained",
+          "titleZh": "阿利效应模型 X′ = 0.1X(X/a − 1)(1 − X/k) 及各项含义"
+        },
+        {
+          "code": "2.13",
+          "titleEn": "State space with the Allee effect for a < k: the equilibrium points at 0, a and k, with their stability",
+          "titleZh": "a < k 时阿利效应的状态空间：位于 0、a、k 的平衡点及其稳定性"
+        },
+        {
+          "code": "2.14",
+          "titleEn": "State space with the Allee effect for a > k: the equilibrium points at 0, k and a, with their stability",
+          "titleZh": "a > k 时阿利效应的状态空间：位于 0、k、a 的平衡点及其稳定性"
+        },
+        {
+          "code": "2.15",
+          "titleEn": "The two cases compared, a < k and a > k, each with its state-space arrow diagram",
+          "titleZh": "两种情形对比：a < k 与 a > k，各自的状态空间箭头示意"
+        },
+        {
+          "code": "2.16",
+          "titleEn": "Definition of a bifurcation: a change in the number or stability of equilibrium points",
+          "titleZh": "分岔的定义：平衡点数量或稳定性的变化"
+        },
+        {
+          "code": "2.17",
+          "titleEn": "The transcritical bifurcation diagram: the equilibria X = k and X = a exchange stability at a = k (left: with vector field; right: stability marked)",
+          "titleZh": "跨临界分岔图：平衡点 X = k 与 X = a 在 a = k 处交换稳定性（左：含向量场；右：标注稳定性）"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+@startuml
+title 解耦的缝 · 组件与契约边界
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam component {
+  BackgroundColor #FDFDFD
+  BorderColor #4A6FA5
+  ArrowColor #4A6FA5
+}
+
+package "LearningGuideAdmin" #EDF2FA {
+  [Portal 分类接口\nC1 GET /api/portal/v1/categories] as CATAPI
+  [Backoffice API\n课程 CRUD · 校验 C3/C4] as BOAPI
+  [课程包 Job\n导入 C5 · 导出 C6 · 原子事务] as PKG
+  [快照 / 恢复\nC7 v3 categoryPath · C9 草稿状态] as SNAP
+  database "PostgreSQL\nCourseCatalogueEntry（树）" as ADB
+  [预置 Seed / 迁移\n分类集合只由开发预置] as SEED
+}
+
+package "LearningGuidePortal" #F6F0E8 {
+  [adminCatalogue 客户端\nX-API-Key · 超时] as CLIENT
+  [adminCatalogueCache\nTTL 60s · 单飞 · 退避 · last-good] as CACHE
+  [CategoryResolver\n全站唯一解析口径] as RESOLVER
+  [展示面\n课程页/首页/页脚/详情/My Learning] as UI
+  [权益与订阅\nscope = 分类稳定键] as ENT
+  [CMS / 旧后台\n分类编辑已停用 P6/P7] as CMS
+  [productStore\nPortal 旧目录（只读过渡，P1 退役）] as STORE
+}
+
+cloud "支付（付款负责人）" as PAY {
+  [Stripe 价格配置\n(scopeKey, term, device) → price] as STRIPE
+}
+
+CATAPI --> ADB
+BOAPI --> ADB
+PKG --> ADB
+SNAP --> ADB
+SEED --> ADB
+
+CLIENT --> CATAPI : 只读分类树
+CACHE --> CLIENT
+RESOLVER --> CACHE
+UI --> RESOLVER
+ENT --> RESOLVER
+CMS ..> CATAPI : 显示名来自 Admin
+STORE ..> RESOLVER : 过渡期课程数据
+
+ENT --> PAY : 只传稳定键，价格供给不在此范围
+
+note right of CACHE
+  缝 S6：Admin 不可用 →
+  退避期内用 last-good；
+  冷启动失败回退内置种子表，页面不崩
+end note
+note bottom of RESOLVER
+  缝 S7/S8：任何展示/权益都不再比较显示名；
+  未分类 → null，只在「全部」下出现
+end note
+note bottom of PKG
+  缝 S4：分类解析与课程写入同一事务；
+  查不到 → 整个 job 失败，不造分类、不留半成品
+end note
+@enduml

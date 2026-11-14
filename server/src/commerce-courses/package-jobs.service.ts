@@ -14,13 +14,19 @@ import type {
   PackageManifest,
   PackageValidationReport,
 } from './contracts/manifest';
+import type { PackageManifestV2 } from '../partc/contracts/package-manifest';
+import { PackageManifestV2Schema } from '../partc/contracts/package-manifest';
+import { isPartCV2Manifest } from './partc-import';
 import { runImportWorker } from './heavy-tasks';
+import { packageSourceEnforcementFromEnv } from '../partc/compiler/parse';
 import { PricingService } from './pricing.service';
 import { PublishingService } from './publishing.service';
 
 export interface JobReport {
   errors: PackageValidationReport['errors'];
   warnings: PackageValidationReport['warnings'];
+  /** 结构性摘要（Part C：contract/courseKey/lessonCount/mediaCount）。 */
+  details?: Record<string, unknown>;
 }
 
 export interface JobView {
@@ -55,8 +61,36 @@ export interface JobView {
 }
 
 /**
- * 课程包导�?导出作业（DB 队列 + FOR UPDATE SKIP LOCKED，见设计文档 §20）�?
- * 上传 �?校验 �?AWAITING_CONFIRM �?确认导入；导�?�?READY �?下载�?
+ * C10.6 生产导入来源门（PACKAGE_SOURCE_ENFORCEMENT=on 时启用）。
+ *
+ * 顺序固定：先按 PackageManifestV2Schema（唯一契约 SSOT）严格校验整包，再判来源。
+ * - 整包不满足 v2 契约（legacy 聚合形状、缺 categoryPath、未知字段、伪造结构）
+ *   → PACKAGE_SOURCE_NOT_ALLOWED：生产只接受 Sandbox 导出的 v2 包；
+ * - v2 包 provenance 缺失或 sourceEnv !== 'sandbox' → PACKAGE_SOURCE_NOT_ALLOWED；
+ * - 判定只看服务端解析出的字段，绝不依据文件名/路径/声明位置（C10.6）。
+ */
+function assertConfirmPackageSourceAllowed(raw: unknown): void {
+  const parsed = PackageManifestV2Schema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ImportError(
+      'PACKAGE_SOURCE_NOT_ALLOWED',
+      422,
+      'Production imports only accept Part C v2 course packages exported from a sandbox environment; this package does not satisfy the v2 contract.',
+    );
+  }
+  const provenance = parsed.data.provenance;
+  if (provenance === undefined || provenance.sourceEnv !== 'sandbox') {
+    throw new ImportError(
+      'PACKAGE_SOURCE_NOT_ALLOWED',
+      422,
+      'Production imports only accept course packages exported from a sandbox environment.',
+    );
+  }
+}
+
+/**
+ * 课程包导入/导出作业（DB 队列 + FOR UPDATE SKIP LOCKED，见设计文档 §20）。
+ * 上传 → 校验 → AWAITING_CONFIRM → 确认导入；导出 → READY → 下载。
  */
 @Injectable()
 export class PackageJobsService {
@@ -503,10 +537,14 @@ export class PackageJobsService {
       await fs.writeFile(packagePath, zipBytes);
       // 解压 + 全面校验�?CPU 重活，放�?worker 线程，避免阻塞事件循�?
       const result = await runImportWorker<{
-        manifest: PackageManifest;
+        manifest: PackageManifest | PackageManifestV2;
         report: PackageValidationReport;
         files: string[];
       }>('inspect', { packagePath, outDir, config: this.config });
+      const details =
+        result.report.details && typeof result.report.details === 'object'
+          ? result.report.details
+          : undefined;
       await this.prisma.coursePackageJob.update({
         where: { id: jobId },
         data: {
@@ -518,6 +556,7 @@ export class PackageJobsService {
           report: {
             errors: result.report.errors,
             warnings: result.report.warnings,
+            ...(details ? { details } : {}),
           } as unknown as Prisma.InputJsonValue,
           error:
             result.report.errors.length > 0
@@ -535,9 +574,22 @@ export class PackageJobsService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Validation failed';
+      const report = (error as { report?: PackageValidationReport }).report;
       await this.prisma.coursePackageJob.update({
         where: { id: jobId },
-        data: { status: 'FAILED', error: message, progress: 100 },
+        data: {
+          status: 'FAILED',
+          error: message,
+          progress: 100,
+          ...(report
+            ? {
+                report: {
+                  errors: report.errors,
+                  warnings: report.warnings,
+                } as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       });
     } finally {
       await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
@@ -548,7 +600,7 @@ export class PackageJobsService {
     jobId: string,
     outDir: string,
     names: string[],
-    manifest: PackageManifest,
+    manifest: PackageManifest | PackageManifestV2,
   ): Promise<void> {
     for (const name of names) {
       const bytes = await fs.readFile(path.join(outDir, name));
@@ -578,28 +630,30 @@ export class PackageJobsService {
     if (!job)
       throw new PackageError('PACKAGE_JOB_NOT_FOUND', 404, 'Job not found.');
 
-    // 读取已校验的包清单（用于判定 Course ID 冲突）
-    let manifest: PackageManifest;
+    // 读取已校验的包清单（用于判定 Course ID 冲突）。清单缺失不在这里直接拒绝：
+    // 先按 AWAITING_CONFIRM 条件认领（双击/并发只允许一个确认进入导入），
+    // 认领成功的一侧再按导入失败处理——避免两个并发确认都停在 409。
+    let manifest: PackageManifest | PackageManifestV2 | null = null;
     try {
       const manifestBytes = await this.storage.getStaging(
         this.storage.stagingKey(jobId, '__manifest.json'),
       );
-      manifest = JSON.parse(manifestBytes.toString('utf8')) as PackageManifest;
+      manifest = JSON.parse(manifestBytes.toString('utf8')) as
+        PackageManifest | PackageManifestV2;
     } catch {
-      throw new PackageError(
-        'PACKAGE_MANIFEST_MISSING',
-        409,
-        'Package manifest is no longer available; please re-upload the package.',
-      );
+      // 清单缺失：见下方认领后的失败处理（并发确认的 409 语义只保留在认领竞争上）。
     }
 
     // 目标课程：来自「导入到已有课程」（Versions 页）时直接写入该课草稿，始终允许。
     let targetCourseId: string | null = job.courseId;
 
-    if (!targetCourseId) {
-      // 从包新建：按 Course ID（Excel 中的 Course ID 字段）判断是否已存在
+    if (!targetCourseId && manifest) {
+      // 从包新建：按 Course ID（Part C courseKey / 旧包 course.code）判断是否已存在
+      const courseKey = isPartCV2Manifest(manifest)
+        ? String(manifest.course.courseKey)
+        : manifest.course.code;
       const existing = await this.prisma.commerceCourse.findFirst({
-        where: { code: manifest.course.code },
+        where: { code: courseKey },
         select: { id: true, code: true, liveVersionId: true },
       });
       if (existing) {
@@ -645,6 +699,28 @@ export class PackageJobsService {
       );
     }
     try {
+      // 认领者拿到任务后才发现清单缺失：按导入失败处理（不占 409 的并发语义）。
+      if (!manifest) {
+        throw new PackageError(
+          'PACKAGE_MANIFEST_MISSING',
+          409,
+          'Package manifest is no longer available; please re-upload the package.',
+        );
+      }
+      // C10.6：来源强制（PACKAGE_SOURCE_ENFORCEMENT，默认休眠）。开启后生产环境
+      // 只接受 provenance.sourceEnv === 'sandbox'；判定只看服务端解析出的字段，
+      // 不看文件名/路径。off 时完全不做来源判断（现状不变）。
+      //
+      // 来源门先做整包契约校验（PackageManifestV2Schema 唯一 SSOT）：
+      // legacy 聚合形状（course.lessons 等，评审阻断 2）与完全私造的 manifest
+      // 无法通过 v2 契约，即使伪造 provenance 也一律 PACKAGE_SOURCE_NOT_ALLOWED，
+      // 绝不让 legacy 包借伪造 provenance 混进生产。
+      if (
+        packageSourceEnforcementFromEnv() &&
+        this.config.versionNumberingMode === 'production'
+      ) {
+        assertConfirmPackageSourceAllowed(manifest);
+      }
       const files = await this.loadStagingFiles(jobId, manifest);
       const { courseId } = targetCourseId
         ? await this.importer.importIntoExistingCourse(
@@ -678,9 +754,20 @@ export class PackageJobsService {
       const code = error instanceof ImportError ? error.code : 'INTERNAL_ERROR';
       const status = error instanceof ImportError ? error.status : 500;
       const message = error instanceof Error ? error.message : 'Import failed';
+      const report =
+        error instanceof ImportError && error.report
+          ? {
+              errors: error.report.errors,
+              warnings: error.report.warnings,
+            }
+          : undefined;
       await this.prisma.coursePackageJob.update({
         where: { id: jobId },
-        data: { status: 'FAILED', error: message },
+        data: {
+          status: 'FAILED',
+          error: message,
+          ...(report ? { report: report } : {}),
+        },
       });
       throw new PackageError(code, status, message);
     }
@@ -688,9 +775,22 @@ export class PackageJobsService {
 
   private async loadStagingFiles(
     jobId: string,
-    manifest: PackageManifest,
+    manifest: PackageManifest | PackageManifestV2,
   ): Promise<Map<string, Buffer>> {
     const files = new Map<string, Buffer>();
+    if (isPartCV2Manifest(manifest)) {
+      for (const resource of manifest.resources) {
+        try {
+          const bytes = await this.storage.getStaging(
+            this.storage.stagingKey(jobId, resource.path),
+          );
+          files.set(resource.path, bytes);
+        } catch {
+          // 缺失由导入阶段报 PACKAGE_FILE_MISSING（闭合包一一对应）。
+        }
+      }
+      return files;
+    }
     const collect = (rel: string | undefined) => {
       if (rel) files.set(rel, Buffer.alloc(0));
     };
@@ -744,7 +844,7 @@ export class PackageJobsService {
     });
     if (!job)
       throw new PackageError('PACKAGE_JOB_NOT_FOUND', 404, 'Job not found.');
-    const manifest = job.manifest as PackageManifest | null;
+    const manifest = job.manifest as PackageManifest | PackageManifestV2 | null;
     const report = job.report as JobReport | null;
     return {
       jobId: job.id,
@@ -757,14 +857,27 @@ export class PackageJobsService {
       sourceVersionId: job.sourceVersionId,
       fileLabel: job.fileLabel,
       package: manifest
-        ? {
-            packageId: manifest.packageId,
-            courseCode: manifest.course.code,
-            slug: manifest.course.slug,
-            lessons: manifest.course.lessons?.length ?? 0,
-            mediaFiles: this.countMedia(manifest),
-            incomplete: manifest.incomplete,
-          }
+        ? isPartCV2Manifest(manifest)
+          ? {
+              packageId:
+                manifest.packageId ?? `pkg_${manifest.course.courseKey}`,
+              courseCode: String(manifest.course.courseKey),
+              slug:
+                typeof manifest.annotations?.slug === 'string'
+                  ? manifest.annotations.slug
+                  : String(manifest.course.courseKey).toLowerCase(),
+              lessons: Number(report?.details?.lessonCount ?? 0),
+              mediaFiles: manifest.resources.length,
+              incomplete: (report?.warnings.length ?? 0) > 0,
+            }
+          : {
+              packageId: manifest.packageId,
+              courseCode: manifest.course.code,
+              slug: manifest.course.slug,
+              lessons: manifest.course.lessons?.length ?? 0,
+              mediaFiles: this.countMedia(manifest),
+              incomplete: manifest.incomplete,
+            }
         : null,
       conflicts: job.conflicts,
       conflict: await this.detectCourseCodeConflict(job, manifest),
@@ -778,15 +891,18 @@ export class PackageJobsService {
    */
   private async detectCourseCodeConflict(
     job: { courseId: string | null; kind: string },
-    manifest: PackageManifest | null,
+    manifest: PackageManifest | PackageManifestV2 | null,
   ): Promise<{
     existingCourseCode: string;
     existingCourseId: string;
     live: boolean;
   } | null> {
     if (!manifest || job.courseId || job.kind !== 'IMPORT') return null;
+    const courseKey = isPartCV2Manifest(manifest)
+      ? String(manifest.course.courseKey)
+      : manifest.course.code;
     const existing = await this.prisma.commerceCourse.findFirst({
-      where: { code: manifest.course.code },
+      where: { code: courseKey },
       select: { id: true, code: true, liveVersionId: true },
     });
     if (!existing) return null;

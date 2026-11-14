@@ -1,10 +1,33 @@
 import type { Prisma } from '@prisma/client';
+import { UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CompletenessInput,
   ContentLesson,
   ContentLocalization,
 } from './completeness';
+import {
+  categoryPathForId,
+  findCategoryById,
+  findCategoryByPath,
+  CategoryResolutionError,
+} from './category-path';
+
+/**
+ * C5 P8：快照引用的媒体资产在本环境不存在（换环境未落地/被删除）。
+ * 在写入任何内容前抛出，事务整体回滚（草稿不变）。
+ */
+export class AssetResolutionError extends UnprocessableEntityException {
+  readonly missingAssetIds: readonly string[];
+  constructor(missingAssetIds: readonly string[]) {
+    super({
+      code: 'ASSET_NOT_FOUND',
+      message: `Snapshot references media assets that do not exist in this environment: ${missingAssetIds.join(', ')}`,
+      missingAssetIds: [...missingAssetIds],
+    });
+    this.missingAssetIds = [...missingAssetIds];
+  }
+}
 
 /**
  * 版本快照（PRD §15.4）。
@@ -13,13 +36,47 @@ import type {
  * **不含试看与价格**（PRD §14：试看/价格不属于版本快照，Restore 不改变它们）。
  * 媒体按资产 ID 引用，未更换的文件在各版本间共用。
  */
+/**
+ * 快照 provenance/annotations（C10.3/C10.4）：随包/快照携带的审计与来源数据。
+ *
+ * 只作追溯，不参与内容身份、幂等与 staleness（B8 确定性）。形状与 Part C
+ * `PackageProvenanceSchema` / `PackageAnnotationsSchema` 同源（类型层面结构兼容）；
+ * 快照 JSON 里缺省即无审计块，历史 v3 快照无需回填。
+ */
+export interface SnapshotProvenanceBlock {
+  sourceEnv: 'sandbox' | 'production';
+  sourceVersionLabel: string;
+  exportedAt: string;
+  exportedBy: string;
+  courseKey: string;
+  planPin: { planId: string; planVersion: number };
+  approvalRef: string;
+  auditSummaryRef: string;
+  asr?: {
+    modelVersion: string;
+    params: Record<string, string | number | boolean | null>;
+    ruleVersion: string;
+  };
+}
+
 export interface VersionSnapshot {
-  formatVersion: 2;
+  /**
+   * 2 = 旧快照（按 categoryId 回读）；3 = 当前格式（categoryPath 稳定键）。
+   * 新发布一律 v3（C7/I9）。
+   */
+  formatVersion: 2 | 3;
   capturedAt: string;
+  /** C10.3/C10.4 审计块（导入来源/计划 pin/ASR pin；不参与身份）。 */
+  provenance?: SnapshotProvenanceBlock;
+  /** C10.4 随快照携带的审计/导出元数据（不参与身份）。 */
+  annotations?: Record<string, unknown>;
   course: {
     code: string;
     slug: string;
-    categoryId: string | null;
+    /** v3：分类稳定键路径；null = 未分类。v3 不写 categoryId。 */
+    categoryPath?: string[] | null;
+    /** v2 兼容字段：仅旧快照读取；新快照不写。 */
+    categoryId?: string | null;
     coverAssetId: string | null;
     learningMode: string;
     defaultContentLanguage: string;
@@ -118,13 +175,18 @@ export async function captureVersionSnapshot(
   });
   if (!course) throw new Error(`Course ${courseId} not found`);
 
+  // C7/I9：v3 快照只存稳定键路径，不存环境 UUID。
+  const categoryPath = await categoryPathForId(prisma, course.categoryId);
+  const audit = await snapshotAuditBlocks(prisma, courseId);
+
   return {
-    formatVersion: 2,
+    formatVersion: 3,
     capturedAt: new Date().toISOString(),
+    ...audit,
     course: {
       code: course.code,
       slug: course.slug,
-      categoryId: course.categoryId,
+      categoryPath,
       coverAssetId: course.coverAssetId,
       learningMode: course.learningMode,
       defaultContentLanguage: course.defaultContentLanguage,
@@ -207,6 +269,55 @@ export async function captureVersionSnapshot(
 }
 
 /**
+ * 快照 provenance/annotations 区块（C10.3/C10.4）：来自该课程最近一次成功的
+ * Part C 导入包（manifest.provenance / annotations）。只作审计追溯，不参与
+ * 内容身份、幂等与 staleness；不存在则快照不带该区块。
+ */
+async function snapshotAuditBlocks(
+  prisma: PrismaService | Prisma.TransactionClient,
+  courseId: string,
+): Promise<
+  Pick<VersionSnapshot, 'provenance'> & Pick<VersionSnapshot, 'annotations'>
+> {
+  const job = await prisma.coursePackageJob.findFirst({
+    where: { courseId, kind: 'IMPORT', status: 'READY' },
+    orderBy: { createdAt: 'desc' },
+    select: { manifest: true },
+  });
+  const manifest = job?.manifest as {
+    provenance?: unknown;
+    annotations?: unknown;
+  } | null;
+  const out: {
+    provenance?: SnapshotProvenanceBlock;
+    annotations?: Record<string, unknown>;
+  } = {};
+  const provenance = manifest?.provenance;
+  if (
+    provenance !== null &&
+    typeof provenance === 'object' &&
+    typeof (provenance as Record<string, unknown>).sourceEnv === 'string' &&
+    typeof (provenance as Record<string, unknown>).sourceVersionLabel ===
+      'string' &&
+    typeof (provenance as Record<string, unknown>).exportedAt === 'string' &&
+    typeof (provenance as Record<string, unknown>).exportedBy === 'string' &&
+    typeof (provenance as Record<string, unknown>).courseKey === 'string' &&
+    typeof (provenance as Record<string, unknown>).planPin === 'object'
+  ) {
+    out.provenance = provenance as SnapshotProvenanceBlock;
+  }
+  const annotations = manifest?.annotations;
+  if (
+    annotations !== null &&
+    typeof annotations === 'object' &&
+    !Array.isArray(annotations)
+  ) {
+    out.annotations = annotations as Record<string, unknown>;
+  }
+  return out;
+}
+
+/**
  * 把快照写回课程工作区（草稿）。用于 Restore / Delete draft / 导入后的整包替换。
  *
  * - Lesson 按 code 复用现有行 ID（课程包只保证 Course ID / Lesson ID，Lesson code 即对外 ID）；
@@ -230,6 +341,11 @@ export async function applyVersionSnapshotInTx(
   courseId: string,
   snapshot: VersionSnapshot,
 ): Promise<void> {
+  // C7：v3 按 categoryPath 在本环境解析；v2 按 categoryId 本地解析。
+  // 解析失败 → CATEGORY_NOT_FOUND，且在写入任何内容之前抛出（原子）。
+  const categoryId = await resolveSnapshotCategoryId(tx, snapshot);
+  // C5 P8：媒体引用必须在写入前全部可解析（缺资产 → ASSET_NOT_FOUND，草稿不变）。
+  await assertSnapshotAssetsExist(tx, snapshot);
   const course = await tx.commerceCourse.findUnique({
     where: { id: courseId },
     select: {
@@ -273,7 +389,7 @@ export async function applyVersionSnapshotInTx(
   await tx.commerceCourse.update({
     where: { id: courseId },
     data: {
-      categoryId: snapshot.course.categoryId,
+      categoryId,
       coverAssetId: snapshot.course.coverAssetId,
       // 创建后锁定 Learning mode（PRD §22），保留当前值
       learningMode: course.learningMode as never,
@@ -428,6 +544,67 @@ export async function applyVersionSnapshotInTx(
   }
 }
 
+/**
+ * 快照分类 → 本环境 categoryId。
+ * - v3（有 categoryPath）：逐级解析 ACTIVE 节点；失败抛 CATEGORY_NOT_FOUND。
+ * - v2（有 categoryId）：按 id 存在性解析；找不到抛 CATEGORY_NOT_FOUND。
+ */
+async function resolveSnapshotCategoryId(
+  tx: Prisma.TransactionClient,
+  snapshot: VersionSnapshot,
+): Promise<string | null> {
+  // v2 快照带 categoryId 键（值可为 null）；v3 不写该键，只写 categoryPath。
+  if (Object.prototype.hasOwnProperty.call(snapshot.course, 'categoryId')) {
+    const categoryId = snapshot.course.categoryId ?? null;
+    if (categoryId === null) return null;
+    const row = await findCategoryById(tx, categoryId);
+    if (!row)
+      throw new CategoryResolutionError(
+        null,
+        `Category ${categoryId} no longer exists`,
+      );
+    return row.id;
+  }
+  if (snapshot.course.categoryPath !== undefined) {
+    if (snapshot.course.categoryPath === null) return null;
+    const row = await findCategoryByPath(tx, snapshot.course.categoryPath);
+    if (!row) throw new CategoryResolutionError(snapshot.course.categoryPath);
+    return row.id;
+  }
+  return null;
+}
+
+/**
+ * C5 P8 / T6.3：快照里的媒体引用必须全部存在于本环境。
+ * 只做存在性检查（不改写 id、不按路径猜），缺失即 ASSET_NOT_FOUND。
+ */
+async function assertSnapshotAssetsExist(
+  tx: Prisma.TransactionClient,
+  snapshot: VersionSnapshot,
+): Promise<void> {
+  const referenced = new Set<string>();
+  const add = (id: string | null | undefined): void => {
+    if (typeof id === 'string' && id !== '') referenced.add(id);
+  };
+  add(snapshot.course.coverAssetId);
+  for (const lesson of snapshot.course.lessons) {
+    for (const localization of lesson.localizations)
+      add(localization.videoAssetId);
+    for (const exhibit of lesson.exhibits) {
+      add(exhibit.mediaAssetId);
+      add(exhibit.thumbnailAssetId);
+    }
+  }
+  if (referenced.size === 0) return;
+  const rows = await tx.courseMediaAsset.findMany({
+    where: { id: { in: [...referenced] } },
+    select: { id: true },
+  });
+  const found = new Set(rows.map((row) => row.id));
+  const missing = [...referenced].filter((id) => !found.has(id)).sort();
+  if (missing.length > 0) throw new AssetResolutionError(missing);
+}
+
 /** 快照 → 完成度输入（工作区 detail 与快照共用同一套规则）。 */
 export function snapshotToCompletenessInput(
   snapshot: VersionSnapshot,
@@ -462,7 +639,13 @@ export function snapshotToCompletenessInput(
     applicationTest: lesson.applicationTest,
   }));
   return {
-    categoryId: snapshot.course.categoryId,
+    // 完成度只判断"是否有分类"（truthiness）；v3 用路径末级代替 UUID。
+    categoryId: Object.prototype.hasOwnProperty.call(
+      snapshot.course,
+      'categoryId',
+    )
+      ? (snapshot.course.categoryId ?? null)
+      : (snapshot.course.categoryPath?.at(-1) ?? null),
     learningMode: snapshot.course.learningMode,
     learningLanguages: snapshot.course.learningLanguages,
     localizations,

@@ -1,9 +1,40 @@
 /**
- * 课程包契约（Package Spec v1）——见 docs/Course_Module_Import_Export_Design.md §4/§16。
- * 导入/导出、manifest 校验、v2 编辑器共用这些类型。
+ * 课程包 v2 —— 过渡适配层（不是契约 SSOT）。
+ *
+ * 唯一契约 SSOT 是 `src/partc/contracts/package-manifest.ts`
+ * （PackageManifestV2Schema / PackageProvenanceSchema / PackageAnnotationsSchema）。
+ *
+ * 现状（2026-11-12 FIX2-ADMIN）：
+ * - 导出（exporter/package-worker）只产出 Part C v2 包，已通过该 SSOT 校验；
+ * - 导入分派：Part C v2 包走 `partc-import` 编译器管线；**本文件的 legacy
+ *   聚合形状只服务历史 staged/旧数据包的兼容读取**，不是第二种 v2 契约的
+ *   写出路径，导入侧也不接受它冒用 v2；
+ * - **raw 素材导入（xlsx/docx zip → 课程）已退役**：`excel-package` 的原始
+ *   素材转换不再声明 `formatVersion: 2`，改为显式 legacy 标记
+ *   （LEGACY_PACKAGE_FORMAT_VERSION），v2 导入侧一律 PACKAGE_FORMAT_UNSUPPORTED。
+ *   新内容必须由 Part C v2 模板生成课程包；raw 路径仅保留转换函数供历史
+ *   数据排查，不产出可导入包；
+ * - 待清理阶段把历史 staged 包迁完後，本文件与 legacy 聚合类型整体删除
+ *   （评审阻断 2；Part A 分类差异已收敛为 categoryPath）。
  */
+import type { PackageManifestV2 } from '../../partc/contracts/package-manifest';
 
 export type PackageLanguage = 'en-GB' | 'zh-CN' | (string & {});
+
+/**
+ * 原始素材转换产物的显式 legacy 版本标记（不是 formatVersion 2）。
+ *
+ * raw 素材导入已退役：转换结果带此标记，且不带任何 checksums/摘要清单；
+ * 导入侧（manifest.validate / Part C 契约）见到它即整体拒绝。历史 staged
+ * 包仍可能是 formatVersion 2 的 legacy 聚合形状（兼容读取，不开新写出路径）。
+ */
+export const LEGACY_PACKAGE_FORMAT_VERSION = 1 as const;
+
+/** 原始素材转换（历史工作流，已退役）的 legacy 来源标识。 */
+export const RETIRED_RAW_SOURCE_ENVIRONMENTS = [
+  'EXCEL_TEMPLATE',
+  'EXCEL_IMPORT',
+] as const;
 
 export type ExhibitType = 'IMAGE' | 'VIDEO' | 'MODEL3D';
 export type ReadingType = 'BOOK' | 'ARTICLE' | 'PAPER' | 'OTHER';
@@ -12,7 +43,11 @@ export type TrialRowStatus = 'READY' | 'RE_CONFIRM' | 'LOCKED';
 
 export interface PackageVideoLearningPoint {
   code: string;
-  timeSeconds: number;
+  /**
+   * 机器时间源派生的秒值；`null` = 本环境没有可用时间源（不得写 0 伪造）。
+   * 导出端遇到 null 不得生成章节 cue；导入端按 C7 重新派生。
+   */
+  timeSeconds: number | null;
   title: string;
 }
 
@@ -108,10 +143,17 @@ export interface PackagePlan {
   lookupKey: string;
 }
 
+/** 分类稳定键路径：与 Part C v2 契约同型（唯一 SSOT，不另立形状）。 */
+export type PackageCategoryPath = PackageManifestV2['course']['categoryPath'];
+
 export interface PackageCourse {
   code: string;
   slug: string;
-  category: string;
+  /**
+   * 分类稳定键路径（设计 C5/I8）：null = 未分类；不再有 `category` 字符串。
+   * 导出时取课程行的分类 name 序列；导入时逐级在 ACTIVE 节点中匹配。
+   */
+  categoryPath: PackageCategoryPath;
   learningMode: LearningMode;
   learningLanguages: PackageLanguage[];
   defaultContentLanguage: PackageLanguage;
@@ -123,19 +165,32 @@ export interface PackageCourse {
   pricing?: PackagePlan[];
 }
 
-export interface PackageManifest {
-  format: 'lg-course-package';
+/**
+ * legacy 聚合包信封（历史兼容读取；不是 v2 契约）。
+ *
+ * - `formatVersion` 用 number：历史 staged 包可能是 2，原始素材转换产物是
+ *   LEGACY_PACKAGE_FORMAT_VERSION（1，显式退役标记）；
+ * - 新代码一律使用 Part C 的 `PackageManifestV2`（SSOT），本类型只由兼容
+ *   读取路径消费。
+ */
+export interface LegacyPackageManifest {
+  format: string;
   formatVersion: number;
   packageId: string;
   exportedAt: string;
   source: { environment?: string; courseCode?: string; sourceVersion?: string };
-  contentHash?: string;
   incomplete: boolean;
   course: PackageCourse;
 }
 
-export const PACKAGE_FORMAT = 'lg-course-package';
-export const PACKAGE_FORMAT_VERSION = 1;
+/** 过渡别名；新代码一律使用 Part C 的 `PackageManifestV2`。 */
+export type PackageManifest = LegacyPackageManifest;
+
+/** 格式标识与版本只有一个来源（Part C version-matrix），此处只做再导出。 */
+export {
+  PACKAGE_FORMAT_TAG as PACKAGE_FORMAT,
+  PACKAGE_FORMAT_VERSION,
+} from '../../partc/version-matrix';
 
 export interface PackageValidationIssue {
   level: 'error' | 'warning';
@@ -148,4 +203,9 @@ export interface PackageValidationReport {
   errors: PackageValidationIssue[];
   warnings: PackageValidationIssue[];
   incomplete: boolean;
+  /**
+   * 结构性摘要（Part C 适配层：contract/courseKey/lessonCount/mediaCount）。
+   * 只用于 job 视图展示；不是契约的一部分，不参与任何身份判定。
+   */
+  details?: Record<string, unknown>;
 }

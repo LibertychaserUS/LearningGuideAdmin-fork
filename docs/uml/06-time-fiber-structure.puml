@@ -1,0 +1,47 @@
+@startuml
+title 时间模型（数学结构）：底空间 = 阶段树；纤维 = 各 rendition 的局部坐标
+
+skinparam shadowing false
+skinparam defaultFontName "PingFang SC"
+skinparam packageStyle rectangle
+skinparam component {
+  BackgroundColor #FDFDFD
+  BorderColor #4A6FA5
+  ArrowColor #4A6FA5
+}
+
+package "底空间 B = 阶段树（偏序 𝕊，无时间概念）" #EDF2FA {
+  component "s0 课程" as S0
+  component "s1 阶段" as S1
+  component "s2 阶段" as S2
+  component "s21 单元" as S21
+  S0 --> S1
+  S0 --> S2
+  S2 --> S21
+}
+
+package "纤维：每个 rendition 自己的坐标空间" #F6F0E8 {
+  component "视频 A\nI_A = [0, D_A) 单位 ms\nD_A 由容器 mvhd 给出" as VA
+  component "视频 B\nI_B = [0, D_B)" as VB
+  component "文档 C\n位置格 P_C（Heading 偏序）\n不是时间空间" as DOC
+}
+
+S1 ..> VA : "φ(s,·) 映射到区间 [t0, t1)"
+S21 ..> VB : "φ(s,·) 映射到区间 [t0, t1)"
+S1 ..> DOC : "χ(s) 映射到文档位置"
+S2 ..> VA : "φ(s,·) 映射到区间"
+
+note right of VA
+  局部坐标：时间只在单条纤维内可定义
+  单位、锚点、时长都由该资产自身确定
+end note
+note bottom of DOC
+  文本不是时间空间：只有顺序（flow），
+  跨模式的对应关系由底空间点 s 给出
+end note
+note bottom
+  不存在全局时间轴：不同纤维之间没有典范过渡映射，
+  "课程总时间"不可作为坐标定义（旧的全局时间轴即败于此）。
+  唯一能把不同纤维粘在一起的是底空间的身份 s（stageId）。
+end note
+@enduml

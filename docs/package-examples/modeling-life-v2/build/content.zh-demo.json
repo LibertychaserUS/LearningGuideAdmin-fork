@@ -1,0 +1,149 @@
+{
+  "note": "Demo-only authored Chinese content and text-exhibit bodies for the modeling-life v2 example package. The old package and old v1 template carry English only for Knowledge Test / Application Test and no bodies for the six text exhibits. These entries are written for the demo package and are declared as demo content in manifest.annotations (zh-CN demo translation, pending content-team review). They are not machine translations and not verified teaching content.",
+  "knowledgeTestZh": {
+    "L001": [
+      {
+        "question": "科学在研究任何动态系统时所采用的概念模型是什么？",
+        "reference_answer": "它是由状态空间、向量空间与轨迹构成的数学框架。"
+      },
+      {
+        "question": "什么是状态？",
+        "reference_answer": "状态是我们正在研究的一个现象的一个方面。例如，假设我们感兴趣的现象是一杯咖啡，那么状态可以是它在房间中的位置、杯中咖啡的量或咖啡的温度。"
+      },
+      {
+        "question": "什么决定了状态的选择？",
+        "reference_answer": "这取决于我们想理解什么样的变化。如果我们关心咖啡蒸发的快慢，就可能会关注杯中咖啡的体积或重量随时间的变化，而不是杯子的位置或咖啡的温度。"
+      },
+      {
+        "question": "为什么状态总是带有数值和单位？",
+        "reference_answer": "如果要用数学来描述一个系统，状态就需要用公认的计量单位来量化。例如，重量可以用克来度量，温度可以用开尔文来度量。"
+      },
+      {
+        "question": "这种建模方法是否只适用于物理或化学研究的现象？",
+        "reference_answer": "它也适用于物质科学以外的领域，例如经济学或生物学。它可用于对动物种群随时间的变化建模，此时状态就是种群的规模，即种群中的动物数量。"
+      },
+      {
+        "question": "什么是状态变量？",
+        "reference_answer": "变量是对系统状态进行测量得到的值。例如，温度通常用开尔文记录。"
+      },
+      {
+        "question": "什么是状态空间？",
+        "reference_answer": "状态空间是系统随时间可能处于的所有状态的集合。"
+      },
+      {
+        "question": "什么样的系统需要用多个状态变量来描述？",
+        "reference_answer": "有时系统的变化取决于不同因素之间的相互作用，因此需要多个变量来描述。以存在捕食者—猎物关系的动物种群为例，如鲨鱼和金枪鱼。鲨鱼—金枪鱼种群由两个变量描述：任意时刻鲨鱼的数量和金枪鱼的数量。"
+      },
+      {
+        "question": "鲨鱼—金枪鱼空间与鲨鱼和金枪鱼生活的海洋是不同的东西吗？",
+        "reference_answer": "是的，它们非常不同。首先，鲨鱼—金枪鱼空间是二维的，而现实生活是三维的。更重要的是，鲨鱼—金枪鱼空间中填充的不是真实的鲨鱼和金枪鱼，而是数字，代表某一时刻鲨鱼和金枪鱼种群的规模。"
+      },
+      {
+        "question": "状态空间可以超过三维吗？",
+        "reference_answer": "可以。例如，神经元的模型通常用四个变量来描述。"
+      },
+      {
+        "question": "什么是向量？",
+        "reference_answer": "向量是相对于状态空间中原点来描述空间中某个位置的方式。因此向量有两个属性：大小和方向。"
+      },
+      {
+        "question": "我们如何在数学上操作向量？",
+        "reference_answer": "有两种方式：加法与乘法。"
+      },
+      {
+        "question": "如何相加向量？",
+        "reference_answer": "可以把向量的数值逐维相加。"
+      },
+      {
+        "question": "可以把一维向量与二维向量相加吗？",
+        "reference_answer": "不可以。只有当两个向量的维数相同时才能相加。"
+      },
+      {
+        "question": "向量的乘法如何运作？",
+        "reference_answer": "乘法会按比例放大或缩小向量的所有元素。例如，若要把二维向量 V1 = (x1, y1) 放大为原来的 3 倍，则 3V1 = (3x1, 3y1)。这个乘数称为标量。"
+      },
+      {
+        "question": "可以把向量彼此相乘吗？",
+        "reference_answer": "可以，但根据你想求什么，有不同的规则。在鲨鱼—金枪鱼的例子中，把一个数据点乘以另一个数据点的含义并不清楚，因此这种情况下相乘没有意义。"
+      },
+      {
+        "question": "如果标量小于 1 或是负数会怎样？",
+        "reference_answer": "当乘以小于 1 的数时，向量的大小会减小。若标量为 0.5，则所得向量是原向量的一半。当乘以负数时，向量的方向会改变。因此标量为 -1 时，向量大小不变，但方向反转。"
+      },
+      {
+        "question": "什么是轨迹？",
+        "reference_answer": "系统的变化可以看作从一个状态空间位置到另一个状态空间位置所遵循的轨迹或路径，而这些位置由向量来描述。"
+      }
+    ],
+    "L002": [
+      {
+        "question": "什么是叉式分岔？",
+        "reference_answer": "当系统参数的变化使一个平衡点改变稳定性，并出现或消失两个额外平衡点时，就发生叉式分岔。所得分岔图形状类似干草叉。"
+      },
+      {
+        "question": "如何用叉式分岔来建模舆论？",
+        "reference_answer": "它可以描述人群如何从中立或平衡的意见转向两种对立的立场。随着参数变化，原本稳定的中立状态可能失稳，从而出现两种稳定的对立意见。"
+      },
+      {
+        "question": "舆论模型中的分岔参数是什么？",
+        "reference_answer": "分岔参数是控制系统行为的变量。在舆论模型中，它可能代表社会影响力的强度或意见极化的倾向。改变该参数会改变平衡点的数量与稳定性。"
+      },
+      {
+        "question": "在超临界叉式分岔中平衡点会怎样变化？",
+        "reference_answer": "在临界参数值之前，存在一个稳定平衡点。在临界值处发生分岔。超过该点后，原平衡点失稳，并出现两个新的稳定平衡点。"
+      },
+      {
+        "question": "什么是跨临界分岔？",
+        "reference_answer": "当参数经过某个临界值时，两条平衡分支相交并交换稳定性，就发生跨临界分岔。"
+      },
+      {
+        "question": "跨临界分岔与叉式分岔有何不同？",
+        "reference_answer": "在叉式分岔中，两条额外的平衡分支在临界点出现或消失。在跨临界分岔中，两条已有的平衡分支相交并交换稳定性。"
+      },
+      {
+        "question": "如何判断一个平衡点是稳定还是不稳定？",
+        "reference_answer": "对于一维微分方程，我们考察描述系统的函数在平衡点处的导数。导数为负表示局部稳定，导数为正表示不稳定。导数为零时需要进一步分析。"
+      },
+      {
+        "question": "为什么分岔对理解动态系统很重要？",
+        "reference_answer": "分岔帮助我们理解系统参数的微小变化如何产生定性的行为变化，例如平衡点数量或稳定性的改变。它们可用于研究生物学、物理学、经济学和社会系统中的现象。"
+      }
+    ]
+  },
+  "applicationTestZh": {
+    "L001": {
+      "question": "假设一个动物种群有两个基因型：黑色的鹰和白色的鸽。它们不断争夺同一食物来源。鹰遇到其他鸟时总会争斗；鸽从不争斗，它们要么让鹰吃掉全部食物，要么与另一只鸽分享食物。若鹰与鹰争夺食物，争斗失败时其生存率降低为原来的三分之一，获胜时则提高 2；它获胜的概率为 50%。若鹰与鸽相遇，由于鸽不争斗，鹰的生存率总是提高 2。鸽遇到鹰时生存率不变；若遇到另一只鸽，食物会使它的生存率同样提高 2，但它与另一只鸽平均分享食物。问：鹰与鸽按什么比例混合的种群会达到稳定平衡？",
+      "reference_answer": "从数学上看，这是一个求二变量微分方程平衡点的问题。在生物学中，这是一个没有上下限约束、两个基因型相互作用的生态模型，适合用博弈论方法处理，起点是鹰鸽相遇的收益矩阵。\n先看鹰。鹰遇到鹰时，有 50% 的概率先手获胜（+2），50% 的概率失败（-3），所以期望收益 = (0.5×2) + (0.5×(-3)) = -0.5。鹰遇到鸽时总是 +2。鸽遇到鹰时从不争夺食物，生存率不受影响，收益为 0。鸽遇到鸽时，食物（+2）被分享，收益为 (0.5×2) = 1。\n由此得到收益矩阵：\n\t鹰\t鸽\n鹰\t-0.5\t2\n鸽\t0\t1\n描述两基因型种群组成如何随适应度变化的微分方程为：\ndX/dT = (f(a) – f(b))·X·(1-X)。\n这就是复制子方程。换言之，某基因型在种群中所占比例随时间的变化（dX/dT），等于该基因型与另一基因型的适应度之差 (f(a) – f(b))，乘以两者相遇的频率，即各自在总种群中所占比例的乘积。若一个基因型的比例为 ¼，则另一个为 1 – ¼，即 ¾。\n当 dX/dT = 0 时达到平衡点。数学上，当种群全为鹰或全为鸽时达到平衡，即若 X 表示鹰的比例，则当 1 – X = 0 或 X = 0 时平衡。但题目要求的是鹰与鸽混合的平衡。\n要找到这个平衡，需要展开 (f(a) – f(b)) 并解 (f(a) – f(b)) = 0。可以回到收益矩阵并加入频率信息来展开。仍设 X 为鹰在种群中的比例。则鹰的适应度为：\n(-0.5（收益或适应度）× X（鹰的比例，即遇到鹰的频率）) + (2 × (1 – X)（鸽的比例，即遇到鸽的频率）)\n= -0.5X + 2(1 – X)\n= 2 – 2.5X\n同理，鸽的适应度为：\n(0 × X) + (1 × (1 – X))\n= 0 + (1 – X)\n= 1 – X\n所以混合平衡点满足：\n2 – 2.5X = 1 – X\n1 – 1.5X = 0\nX = 2/3\n因此，适应度更高的鹰占种群的 2/3，鸽占 1/3。"
+    },
+    "L002": {
+      "question": "假设一个小社区正在讨论修建一座新公园的提案。起初，多数居民持中立意见；一些人支持，一些人反对，但社区总体保持平衡。随着公开讨论越来越频繁，居民越来越受邻居观点的影响。最终，两个截然不同的群体出现：一群强烈支持公园，另一群强烈反对。此前的中立立场变得不那么稳定。问题：叉式分岔如何解释这种舆论变化？随着社会影响增强，中立立场的稳定性发生了什么变化？",
+      "reference_answer": "这一情形可以用超临界叉式分岔来解释。\n第一步：确定初始平衡。起初社区存在一个稳定的中立立场。个体意见的微小变化不会显著影响总体平衡，舆论倾向于回到中立。\n第二步：确定变化的参数。社会影响的强度充当分岔参数。随着居民互动更频繁、更受邻居影响，该参数增大。\n第三步：解释分岔。当社会影响达到临界水平时，中立平衡失去稳定性。两个新的稳定平衡出现，分别代表对提案的强烈支持与强烈反对。\n第四步：解释结果。社区总体意见可能转向两个稳定立场中的任何一个。初始意见或外部影响的细微差异可能决定哪一个立场占据主导。\n结论：叉式分岔表明，社会影响的逐渐增强如何把一个稳定、平衡的舆论转变为两个对立的稳定状态。这说明系统条件的相对微小变化可以带来行为的显著变化。"
+    }
+  },
+  "textExhibitDescriptions": {
+    "1.3": {
+      "en": "The first point to make about states is that states have units. Temperature is measured in degrees Kelvin, an absolute temperature scale; the amount of coffee could be measured by mass in grams or by volume in cubic inches. Different variables require different units, but states always have units.",
+      "zh": "关于状态要强调的第一点是：状态有单位。温度用开尔文度量，这是一种绝对温标；杯中咖啡的量可以用克（质量）或立方英寸（体积）度量。不同的变量需要不同的单位，但状态总是有单位的。"
+    },
+    "1.5": {
+      "en": "A dynamic system changes over time, and these changes are conceived as a collection of states at particular times. Which state we choose depends on what we want to understand; the state variable is the measurement of that state. In our examples the state variables are T (temperature) or x (the number of animals).",
+      "zh": "动态系统随时间变化，这些变化被看作特定时刻状态的集合。我们选择哪种状态取决于想理解什么；状态变量就是对该状态的测量。在我们的例子里，状态变量是 T（温度）或 x（动物数量）。"
+    },
+    "1.10": {
+      "en": "There are two principal rules for dealing with vectors: addition of two vectors, and multiplication of a vector by a number. Addition matches component with component; multiplication scales every component by the same scalar.",
+      "zh": "处理向量有两条主要规则：两个向量相加，以及向量与数相乘。加法是逐分量相加；乘法是用同一个标量缩放每个分量。"
+    },
+    "1.13": {
+      "en": "The state-space framework uses real numbers, and the same geometric picture extends to complex numbers. A real number is an ordinary point on the number line; complex numbers add a second dimension, giving a richer state space.",
+      "zh": "状态空间框架使用实数，而同样的几何图景可以推广到复数。实数是数轴上的普通点；复数增加第二个维度，给出更丰富的状态空间。"
+    },
+    "1.14": {
+      "en": "The set of all pairs (X, Y) with X and Y real is called R × R, or R². Likewise R³ is the set of all triples (X, Y, Z). In general Rⁿ is the set of all n-tuples of real numbers, the state space of a system with n state variables.",
+      "zh": "所有实数对 (X, Y) 组成的集合称为 R × R，或 R²。同样，R³ 是所有三元组 (X, Y, Z) 的集合。一般地，Rⁿ 是所有 n 个实数组成的元组的集合，即具有 n 个状态变量的系统的状态空间。"
+    },
+    "1.18": {
+      "en": "Key concepts: the state vector (X, Y, Z) corresponds to a point in state space; adding vectors places them tip-to-tail and gives a resultant; multiplying by a scalar stretches or shrinks a vector. These operations describe how a system moves through its state space over time.",
+      "zh": "关键概念：状态向量 (X, Y, Z) 对应状态空间中的一个点；向量相加是首尾相接得到合向量；与标量相乘则拉伸或压缩向量。这些运算描述了系统如何随时间在其状态空间中移动。"
+    }
+  }
+}

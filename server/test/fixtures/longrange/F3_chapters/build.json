@@ -1,0 +1,100 @@
+{
+  "name": "F3_chapters",
+  "zip": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F3_chapters/F3_chapters.zip",
+  "zipSize": 164963958,
+  "timingSource": "chapter",
+  "versionNo": 1,
+  "l1VideoVersion": 1,
+  "media": {
+    "L1": {
+      "path": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F3_chapters/package/media/l1-video.mp4",
+      "name": "l1-video.mp4",
+      "size": 139719549,
+      "durationMs": 1469312,
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "videoStreams": 1,
+      "audioStreams": 1,
+      "videoCodec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "chapters": 5,
+      "subtitleStreams": 0
+    },
+    "L2": {
+      "path": "/Users/nihao/AI infra/LearningGuideAdmin/server/test/fixtures/longrange/F3_chapters/package/media/l2-video.mp4",
+      "name": "l2-video.mp4",
+      "size": 21124442,
+      "durationMs": 1584263,
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "videoStreams": 1,
+      "audioStreams": 1,
+      "videoCodec": "h264",
+      "width": 960,
+      "height": 544,
+      "chapters": 2,
+      "subtitleStreams": 0
+    }
+  },
+  "resources": [
+    {
+      "id": "template",
+      "kind": "template",
+      "path": "template.xlsx",
+      "size": 51404
+    },
+    {
+      "id": "modeling-life-cover",
+      "kind": "cover",
+      "path": "media/cover.png",
+      "size": 1750526
+    },
+    {
+      "id": "l1-video",
+      "kind": "video",
+      "path": "media/l1-video.mp4",
+      "size": 139719549
+    },
+    {
+      "id": "l2-video",
+      "kind": "video",
+      "path": "media/l2-video.mp4",
+      "size": 21124442
+    },
+    {
+      "id": "l1-doc",
+      "kind": "document",
+      "path": "lessons/l1.docx",
+      "size": 3100051
+    },
+    {
+      "id": "l2-doc",
+      "kind": "document",
+      "path": "lessons/l2.docx",
+      "size": 1141651
+    },
+    {
+      "id": "l1-ex1",
+      "kind": "image",
+      "path": "media/l1-ex1.png",
+      "size": 1207457
+    },
+    {
+      "id": "l1-ex2",
+      "kind": "image",
+      "path": "media/l1-ex2.png",
+      "size": 908422
+    },
+    {
+      "id": "l1-ex1-thumb",
+      "kind": "thumbnail",
+      "path": "media/l1-ex1-thumb.png",
+      "size": 1504663
+    },
+    {
+      "id": "l1-ex2-thumb",
+      "kind": "thumbnail",
+      "path": "media/l1-ex2-thumb.png",
+      "size": 1158424
+    }
+  ]
+}
