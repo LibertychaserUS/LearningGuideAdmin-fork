@@ -21,6 +21,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/common/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { E2E_PASSWORD, signInAs } from './helpers/employee-session';
+import { purgePartcCourse } from './helpers/partc-purge';
 
 /**
  * 长程真实测试 · 完整生命周期 scenario（计划 §3 的 7 步连续跑）。
@@ -696,6 +697,43 @@ describe('Long-range full lifecycle scenario (real package, real HTTP, real Post
         .rm(path.join(storageRoot, jobId), { recursive: true, force: true })
         .catch(() => undefined);
     }
+    // 本场景是「单库串跑」链路的最后一套；清掉自己建的课程、Part C 行与事件夹具表，
+    // 让链跑结束后数据库回到空态（发布产物的 append-only 触发器由 purge 临时绕过）。
+    if (courseId) {
+      await purgePartcCourse(prisma, courseKey, [courseId]);
+      await prisma.coursePackageJob
+        .deleteMany({ where: { courseId } })
+        .catch(() => undefined);
+      await prisma.courseVersion
+        .deleteMany({ where: { courseId } })
+        .catch(() => undefined);
+      await prisma.commerceCourse
+        .deleteMany({ where: { id: courseId } })
+        .catch(() => undefined);
+      const mediaRoot = path.resolve(
+        process.env.COURSE_MEDIA_ROOT?.trim() || 'storage/course-media',
+      );
+      await fs
+        .rm(path.join(mediaRoot, 'course-media', courseId), {
+          recursive: true,
+          force: true,
+        })
+        .catch(() => undefined);
+      const leftover = await prisma.pcCourse
+        .count({ where: { courseKey } })
+        .catch(() => 0);
+      if (leftover > 0) {
+        throw new Error(
+          `pc_course rows for ${courseKey} were still present after cleanup; ` +
+            'the serial run must end with an empty database (pc_course count 0).',
+        );
+      }
+    }
+    // Portal 事件夹具在同一库 bootstrap 的账本表；与 longrange-session-events 的约定一致。
+    await prisma.$executeRawUnsafe(
+      'DROP TABLE IF EXISTS learning_plan_entries',
+    );
+    await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS learning_events');
     await app.close();
   });
 
@@ -1285,6 +1323,7 @@ describe('Long-range full lifecycle scenario (real package, real HTTP, real Post
     await second.connect();
     const originalDbUrl = process.env.DATABASE_URL;
     let secondApp: INestApplication<App> | null = null;
+    let f6CourseId = '';
     try {
       const science = await second.query(
         `SELECT id FROM "CourseCatalogueEntry" WHERE name = 'Science' AND "parentId" IS NULL`,
@@ -1343,6 +1382,7 @@ describe('Long-range full lifecycle scenario (real package, real HTTP, real Post
       expect(confirmed.status).toBe(200);
       const ready = data<{ status: string; courseId: string }>(confirmed);
       expect(ready.status).toBe('READY');
+      f6CourseId = ready.courseId;
       log('step9', `imported into second db courseId=${ready.courseId}`);
 
       const env2Alignments = await partcAlignments(f6Agent);
@@ -1409,6 +1449,18 @@ describe('Long-range full lifecycle scenario (real package, real HTTP, real Post
     } finally {
       if (secondApp) await secondApp.close();
       process.env.DATABASE_URL = originalDbUrl;
+      // 第二库的媒体文件写在同一本地存储根下；库被 DROP 后按课程 id 回收文件。
+      if (f6CourseId) {
+        const mediaRoot = path.resolve(
+          process.env.COURSE_MEDIA_ROOT?.trim() || 'storage/course-media',
+        );
+        await fs
+          .rm(path.join(mediaRoot, 'course-media', f6CourseId), {
+            recursive: true,
+            force: true,
+          })
+          .catch(() => undefined);
+      }
       await second.end().catch(() => undefined);
       const cleanup = new PgClient({ connectionString: adminUrl });
       await cleanup.connect();

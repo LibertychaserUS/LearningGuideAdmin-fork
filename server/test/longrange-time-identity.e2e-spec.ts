@@ -504,7 +504,7 @@ function roundedToSeconds(ms: number): number {
 
 function createHttp(
   agent: Awaited<ReturnType<typeof signInAs>>,
-  onExportJob: (jobId: string) => void,
+  onJob: (jobId: string) => void,
 ) {
   async function uploadPackage(
     bytes: Buffer,
@@ -517,7 +517,10 @@ function createHttp(
         contentType: 'application/zip',
       });
     expect([200, 201]).toContain(response.status);
-    return { job: dataOf<JobView>(response), status: response.status };
+    const job = dataOf<JobView>(response);
+    // 上传即登记作业，校验失败/用例抛错时 afterAll 也能清掉这一行。
+    onJob(job.jobId);
+    return { job, status: response.status };
   }
 
   async function getJob(jobId: string): Promise<JobView> {
@@ -579,7 +582,7 @@ function createHttp(
       .send({ version: 'working' })
       .expect(202);
     const jobId = dataOf<{ jobId: string }>(started).jobId;
-    onExportJob(jobId);
+    onJob(jobId);
     const deadline = Date.now() + 300_000;
     let status = '';
     while (Date.now() < deadline) {
@@ -741,6 +744,9 @@ describe('Long-range T1/T2: asset identity and machine timing derivation (real 1
           OR: [
             { assetKey: { in: mediaKeys } },
             { uri: { contains: COURSE_KEY } },
+            // 媒体 uri 里是课程 UUID，不是 courseKey；封面/字幕/章节等非 rendition
+            // 载体只能按本课程 id 回收，否则串跑结束后仍残留资产行。
+            ...(course ? [{ uri: { contains: course.id } }] : []),
           ],
         },
       })

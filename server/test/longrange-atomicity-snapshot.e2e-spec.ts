@@ -17,6 +17,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/common/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { E2E_PASSWORD, signInAs } from './helpers/employee-session';
+import { purgePartcCourse } from './helpers/partc-purge';
 
 /**
  * 长程真实测试 T5 + T6（docs/Course_Category_LongRange_TestPlan.md §2）。
@@ -269,132 +270,6 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
     process.env.COURSE_PACKAGE_ROOT?.trim() || 'storage/course-package',
   );
 
-  /**
-   * 清除一门 Part C 课程的全部本地行（测试专用、只用于本套件固定键/前缀）。
-   * 顺序受 FK 约束：事件/达成 → 审批/发布/内容版本/plan → 对齐 →
-   * rendition/block/spec/evidence/objective/media → 边 → stage → course。
-   * 只做 cleanup/arrange，不用于业务断言。
-   */
-  async function purgePartcCourse(courseKey: string): Promise<void> {
-    const stages = await prisma.pcStage
-      .findMany({ where: { courseKey }, select: { stageKey: true } })
-      .catch(() => []);
-    const stageKeys = stages.map((stage) => stage.stageKey);
-    const plans = await prisma.pcPlan
-      .findMany({ where: { courseKey }, select: { planId: true } })
-      .catch(() => []);
-    const planIds = plans.map((plan) => plan.planId);
-    const specs = await prisma.pcContentSpec
-      .findMany({ where: { courseKey }, select: { contentKey: true } })
-      .catch(() => []);
-    const contentKeys = specs.map((spec) => spec.contentKey);
-    const renditionRows = contentKeys.length
-      ? await prisma.pcRendition
-          .findMany({
-            where: { contentKey: { in: contentKeys } },
-            select: { carrierKey: true },
-          })
-          .catch(() => [])
-      : [];
-    const carrierKeys = [
-      ...new Set(renditionRows.map((row) => row.carrierKey)),
-    ];
-    const versions = await prisma.pcContentVersion
-      .findMany({ where: { courseKey }, select: { contentVersionId: true } })
-      .catch(() => []);
-    const contentVersionIds = versions.map(
-      (version) => version.contentVersionId,
-    );
-
-    if (contentVersionIds.length) {
-      await prisma.pcLearningEvent
-        .deleteMany({ where: { contentVersionId: { in: contentVersionIds } } })
-        .catch(() => undefined);
-      await prisma.pcEvidenceAttainment
-        .deleteMany({ where: { contentVersionId: { in: contentVersionIds } } })
-        .catch(() => undefined);
-    }
-    // PcContentVersion / PcPublication / 其绑定的 PcPlan 是发布后不可变的
-    // append-only 行（DB 触发器拒绝删除）；cleanup 不触碰它们。测试因此为每次
-    // 运行使用唯一 courseKey，避免历史行影响新用例。
-    if (planIds.length === 0) {
-      await prisma.pcPlan
-        .deleteMany({ where: { courseKey } })
-        .catch(() => undefined);
-    }
-    if (stageKeys.length) {
-      await prisma.pcAlignment
-        .deleteMany({ where: { stageKey: { in: stageKeys } } })
-        .catch(() => undefined);
-      await prisma.pcPrerequisiteEdge
-        .deleteMany({
-          where: {
-            OR: [
-              { fromStageKey: { in: stageKeys } },
-              { toStageKey: { in: stageKeys } },
-            ],
-          },
-        })
-        .catch(() => undefined);
-    }
-    if (contentKeys.length) {
-      await prisma.pcRendition
-        .deleteMany({ where: { contentKey: { in: contentKeys } } })
-        .catch(() => undefined);
-      await prisma.pcBlock
-        .deleteMany({ where: { contentKey: { in: contentKeys } } })
-        .catch(() => undefined);
-      await prisma.pcContentSpec
-        .deleteMany({ where: { contentKey: { in: contentKeys } } })
-        .catch(() => undefined);
-    }
-    const objectives = await prisma.pcObjective
-      .findMany({ where: { courseKey }, select: { objectiveKey: true } })
-      .catch(() => []);
-    if (objectives.length) {
-      await prisma.pcObjective
-        .deleteMany({
-          where: {
-            objectiveKey: { in: objectives.map((o) => o.objectiveKey) },
-          },
-        })
-        .catch(() => undefined);
-    }
-    if (carrierKeys.length) {
-      await prisma.pcMediaAsset
-        .deleteMany({
-          where: {
-            assetKey: { in: carrierKeys },
-            assetVersion: 1,
-          },
-        })
-        .catch(() => undefined);
-    }
-    const evidenceKeys = new Set<string>();
-    for (const stage of stages) {
-      const row = await prisma.pcStage
-        .findUnique({
-          where: { stageKey: stage.stageKey },
-          select: { exitEvidence: true },
-        })
-        .catch(() => null);
-      row?.exitEvidence.forEach((key) => evidenceKeys.add(key));
-    }
-    if (evidenceKeys.size) {
-      await prisma.pcEvidenceSpec
-        .deleteMany({ where: { evidenceKey: { in: [...evidenceKeys] } } })
-        .catch(() => undefined);
-    }
-    if (stageKeys.length) {
-      await prisma.pcStage
-        .deleteMany({ where: { stageKey: { in: stageKeys } } })
-        .catch(() => undefined);
-    }
-    await prisma.pcCourse
-      .deleteMany({ where: { courseKey } })
-      .catch(() => undefined);
-  }
-
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -406,7 +281,7 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
     agent = await signInAs(app, 'ADMIN');
 
     // 本套件使用真实包的固定 courseKey；重写到本次运行的唯一键后导入。
-    await purgePartcCourse(MODELING_KEY);
+    await purgePartcCourse(prisma, MODELING_KEY);
     await prisma.commerceCourse
       .deleteMany({ where: { code: MODELING_KEY } })
       .catch(() => undefined);
@@ -442,7 +317,28 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
   });
 
   afterAll(async () => {
-    // best effort cleanup：只删本套件创建的课程与作业；append-only 事件失败不影响。
+    // 先等本套件发起的导入/导出作业真正落定，避免 afterAll 清理之后后台导入
+    // 再写回 pc_course（单库串跑时这会破坏后续套件的空库前置）。
+    const terminalJobStatuses = new Set([
+      'AWAITING_CONFIRM',
+      'READY',
+      'FAILED',
+      'CANCELLED',
+    ]);
+    const settleDeadline = Date.now() + 120_000;
+    for (;;) {
+      const jobs = await prisma.coursePackageJob
+        .findMany({
+          where: { id: { in: createdJobIds } },
+          select: { status: true },
+        })
+        .catch(() => []);
+      if (jobs.every((job) => terminalJobStatuses.has(job.status))) break;
+      if (Date.now() > settleDeadline) break;
+      await sleep(250);
+    }
+
+    // best effort cleanup：只删本套件创建的课程与作业。
     for (const jobId of createdJobIds) {
       await prisma.coursePackageJob
         .deleteMany({ where: { id: jobId } })
@@ -451,6 +347,9 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
         .rm(path.join(storageRoot, jobId), { recursive: true, force: true })
         .catch(() => undefined);
     }
+    const mediaRoot = path.resolve(
+      process.env.COURSE_MEDIA_ROOT?.trim() || 'storage/course-media',
+    );
     for (const id of createdCourseIds) {
       await prisma.coursePackageJob
         .deleteMany({ where: { courseId: id } })
@@ -461,9 +360,33 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
       await prisma.commerceCourse
         .deleteMany({ where: { id } })
         .catch(() => undefined);
+      await fs
+        .rm(path.join(mediaRoot, 'course-media', id), {
+          recursive: true,
+          force: true,
+        })
+        .catch(() => undefined);
     }
     for (const courseKey of createdCourseKeys) {
-      await purgePartcCourse(courseKey);
+      // 清理后按 courseKey 校验；若有迟到的写入，重试直到 0 行再结束。
+      const purgeDeadline = Date.now() + 30_000;
+      for (;;) {
+        await purgePartcCourse(prisma, courseKey, createdCourseIds);
+        await prisma.commerceCourse
+          .deleteMany({ where: { code: courseKey } })
+          .catch(() => undefined);
+        const leftover = await prisma.pcCourse
+          .count({ where: { courseKey } })
+          .catch(() => 0);
+        if (leftover === 0) break;
+        if (Date.now() > purgeDeadline) {
+          throw new Error(
+            `pc_course rows for ${courseKey} were still present after cleanup; ` +
+              'the next suite requires an empty database (pc_course count 0).',
+          );
+        }
+        await sleep(250);
+      }
     }
     await app.close();
   });
@@ -1494,6 +1417,7 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
 
     const originalDbUrl = process.env.DATABASE_URL;
     let secondApp: INestApplication<App> | null = null;
+    let f6CourseId = '';
     try {
       process.env.DATABASE_URL = secondUrl;
       const secondModule: TestingModule = await Test.createTestingModule({
@@ -1512,6 +1436,7 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
       console.log('[F6] second app ready');
 
       const imported = await importNew(exported, 'F6_export.zip', f6Agent);
+      f6CourseId = imported.courseId;
 
       console.log(`[F6] imported into ${imported.courseId}`);
       const env2Alignments = await partcAlignments(courseKey, f6Agent);
@@ -1564,6 +1489,18 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
     } finally {
       if (secondApp) await secondApp.close();
       process.env.DATABASE_URL = originalDbUrl;
+      // 第二库的媒体文件写在同一本地存储根下；库被 DROP 后按课程 id 回收文件。
+      if (f6CourseId) {
+        const mediaRoot = path.resolve(
+          process.env.COURSE_MEDIA_ROOT?.trim() || 'storage/course-media',
+        );
+        await fs
+          .rm(path.join(mediaRoot, 'course-media', f6CourseId), {
+            recursive: true,
+            force: true,
+          })
+          .catch(() => undefined);
+      }
       await second.end().catch(() => undefined);
       const cleanup = new PgClient({ connectionString: adminUrl });
       await cleanup.connect();

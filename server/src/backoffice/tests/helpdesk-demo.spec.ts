@@ -190,7 +190,12 @@ describeDb('helpdesk demo data (PostgreSQL)', () => {
         EMP,
         `0192ffff-0000-7000-8000-${String(index + 1).padStart(12, '0')}`,
       );
-    seededAt = new Date();
+    // 卡的 updated_at 由数据库 now() 写入。宿主机与 Docker Postgres 的时钟可能相差
+    // 数毫秒到十几毫秒；用宿主 Date 当「现在」会让审核时间早于卡的更新时间。演示行
+    // 的 now 必须取数据库时钟，保证 review.at >= faq.updated_at。
+    seededAt = (
+      await pool.query<{ seeded_at: Date }>('SELECT now() AS seeded_at')
+    ).rows[0].seeded_at;
   });
 
   afterAll(async () => {
