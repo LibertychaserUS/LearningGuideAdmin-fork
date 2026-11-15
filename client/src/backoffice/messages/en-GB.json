@@ -222,7 +222,9 @@
       "resent": "New activation email delivery result: {result}. The previous link is no longer valid.",
       "linkReady": "One-time link generated.",
       "linkLabel": "One-time link"
-    }
+    },
+    "roleAccess": "What this role can reach",
+    "roleAccessHint": "Menu visibility and level come from the PRD §3.2 role matrix; only Admin can manage employee accounts."
   },
   "pagination": {
     "showing": "{from}–{to} of {total}",
@@ -269,7 +271,9 @@
     "PASSWORD_MISMATCH": "The two passwords do not match.",
     "PASSWORD_SAME_AS_CURRENT": "The new password must be different from your current password.",
     "INTERNAL_ERROR": "Something went wrong. Please try again.",
-    "serverGeneric": "Something went wrong. Please try again."
+    "serverGeneric": "Something went wrong. Please try again.",
+    "LAST_ADMIN": "Keep at least one active Admin: the last Admin cannot be demoted or deactivated.",
+    "SELF_ACCOUNT_EDIT": "You cannot change your own role or deactivate your own account. Ask another administrator."
   },
   "aiTutor": {
     "title": "AI Tutor",
@@ -2367,5 +2371,11 @@
     "detail": "Details: {message}",
     "unknown": "Unknown error",
     "reload": "Reload"
+  },
+  "permissionLevels": {
+    "NONE": "No access",
+    "VIEW": "View",
+    "EDIT": "Edit",
+    "FULL": "Full"
   }
 }

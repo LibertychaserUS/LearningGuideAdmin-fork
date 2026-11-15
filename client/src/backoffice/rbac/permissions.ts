@@ -183,6 +183,16 @@ export function visibleSettingsSubs(role: EmployeeRole): SettingsSubKey[] {
   );
 }
 
+/**
+ * BUG-0329：员工账号页在分配角色时展示的「菜单 → 级别」清单。
+ * 与 ROLE_MATRIX 同源，页面不另写一份权限表。
+ */
+export function roleAccessRows(
+  role: EmployeeRole
+): Array<{ menu: MenuKey; level: PermissionLevel }> {
+  return MENU_ORDER.map((menu) => ({ menu, level: levelFor(role, menu) }));
+}
+
 export function menuFromPathSegments(segments: string[] | undefined): MenuKey | null {
   if (!segments || segments.length === 0) return null;
   const target = segments[0];

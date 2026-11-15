@@ -27,6 +27,35 @@ export class StudentsError extends Error {
 
 export type PortalStudentsConfig = { baseUrl: string; token: string };
 
+const mismatchLogger = new Logger('PortalStudentsClient');
+const warnedMismatches = new Set<string>();
+
+function baseIdentity(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * BUG-0330：两个地址按约定是同一个 Portal。指向不同 Portal 时，BackOffice 读到的
+ * 不是学员保存资料的那份数据，症状是"学生详情全空"而不是报错。这里只告警，不改取数。
+ */
+export function portalBaseMismatch(): {
+  students: string;
+  helpdesk: string;
+} | null {
+  const students = process.env.PORTAL_STUDENTS_BASE_URL?.trim() ?? '';
+  const helpdesk = process.env.PORTAL_HELPDESK_BASE_URL?.trim() ?? '';
+  if (students === '' || helpdesk === '') return null;
+  const a = baseIdentity(students);
+  const b = baseIdentity(helpdesk);
+  if (a === null || b === null || a === b) return null;
+  return { students, helpdesk };
+}
+
 export function portalStudentsConfig(): PortalStudentsConfig | null {
   const rawBase = (
     process.env.PORTAL_STUDENTS_BASE_URL?.trim() ||
@@ -44,6 +73,16 @@ export function portalStudentsConfig(): PortalStudentsConfig | null {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
   } catch {
     return null;
+  }
+  const mismatch = portalBaseMismatch();
+  if (mismatch) {
+    const key = `${mismatch.students}\n${mismatch.helpdesk}`;
+    if (!warnedMismatches.has(key)) {
+      warnedMismatches.add(key);
+      mismatchLogger.warn(
+        `PORTAL_STUDENTS_BASE_URL (${mismatch.students}) and PORTAL_HELPDESK_BASE_URL (${mismatch.helpdesk}) point at different Portals; student details come from the students one.`,
+      );
+    }
   }
   return { baseUrl: rawBase.replace(/\/+$/, ''), token };
 }

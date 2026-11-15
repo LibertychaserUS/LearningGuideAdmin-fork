@@ -1,6 +1,7 @@
 import type { ErrorCode } from '../../../contracts/envelope';
 import {
   deriveDisplayStatus,
+  editsOwnAuthority,
   isAccountStatus,
   isDisplayStatus,
   isEmployeeRole,
@@ -247,16 +248,32 @@ export async function updateEmployee(input: {
     }
   }
 
-  let updated: employeeRepository.EmployeeRecord;
+  // BUG-0329（补充）：不允许改自己的角色或停用自己（改邮箱/密码不受影响）。
+  if (
+    editsOwnAuthority({
+      actorEmployeeId: input.actorEmployeeId,
+      targetEmployeeId: existing.employeeId,
+      currentRole: existing.role,
+      currentStatus: existing.accountStatus,
+      nextRole: patch.role,
+      nextStatus: patch.accountStatus,
+    })
+  ) {
+    return { ok: false, code: 'SELF_ACCOUNT_EDIT' };
+  }
+
+  // BUG-0329：最后一个可登录 Admin 的保护在仓储层的事务里完成
+  // （advisory lock + FOR UPDATE + ACTIVE/VERIFIED 计数），这里只翻译结果。
+  let outcome: employeeRepository.UpdateEmployeeOutcome;
   try {
-    updated = await employeeRepository.updateEmployee(
-      existing.employeeId,
-      patch,
-    );
+    outcome = await employeeRepository.updateEmployee(existing.employeeId, patch);
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, code: 'DUPLICATE_EMAIL' };
     throw error;
   }
+  if (outcome.kind === 'not_found') return { ok: false, code: 'INVALID_INPUT' };
+  if (outcome.kind === 'last_admin') return { ok: false, code: 'LAST_ADMIN' };
+  const updated = outcome.record;
 
   if (existing.role !== updated.role) {
     await tryRecordAuditEvent({

@@ -1,10 +1,11 @@
+import { leavesNoActiveAdmin } from '../contracts/employee';
 import type {
   AccountStatus,
   DisplayStatus,
   EmailVerification,
   EmployeeRole,
 } from '../contracts/employee';
-import { query } from '../lib/db';
+import { query, withTransaction } from '../lib/db';
 
 export type EmployeeRecord = {
   employeeId: string;
@@ -108,6 +109,23 @@ export async function createEmployee(input: {
   return toRecord(row);
 }
 
+export type UpdateEmployeeOutcome =
+  | { kind: 'updated'; record: EmployeeRecord }
+  | { kind: 'not_found' }
+  | { kind: 'last_admin' };
+
+/**
+ * BUG-0329：更新员工账号，并在同一个事务里守住「至少剩一个可登录的管理员」。
+ *
+ * - 事务 + advisory lock + FOR UPDATE：两个 Admin 并发互降时不会各自读到旧计数
+ *   （`bootstrap.ts` 的 createFirstAdmin 是同一把锁的同类写法）。
+ * - 「可用」= ADMIN + ACTIVE + VERIFIED：未激活的邀请账号登不进来，不能算数。
+ *
+ * 可用性说明：种子迁移总会建一个 ACTIVE+VERIFIED 的受保护管理员
+ * （`20261023170000_backoffice_default_admin`），且触发器禁止停用/降级/删除它。
+ * 因此只要库里有种管理员，这条分支就不会触发——它是为「库里没有种管理员」
+ * （恢复的备份、被裁剪的环境）准备的兜底，不是日常路径。
+ */
 export async function updateEmployee(
   employeeId: string,
   patch: {
@@ -115,34 +133,77 @@ export async function updateEmployee(
     role?: EmployeeRole;
     accountStatus?: AccountStatus;
   },
-): Promise<EmployeeRecord> {
-  const sets: string[] = [];
-  const params: unknown[] = [];
+): Promise<UpdateEmployeeOutcome> {
+  return withTransaction(async (client) => {
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext('backoffice_employee_admin_guard'))`,
+    );
+    const found = await client.query<EmployeeRow>(
+      `SELECT ${COLUMNS} FROM employees WHERE employee_id = $1 FOR UPDATE`,
+      [employeeId],
+    );
+    const current = found.rows[0];
+    if (!current) return { kind: 'not_found' as const };
 
-  if (patch.loginEmail !== undefined) {
-    params.push(patch.loginEmail);
-    sets.push(`login_email = $${params.length}`);
-  }
-  if (patch.role !== undefined) {
-    params.push(patch.role);
-    sets.push(`role = $${params.length}`);
-  }
-  if (patch.accountStatus !== undefined) {
-    params.push(patch.accountStatus);
-    sets.push(`account_status = $${params.length}`);
-  }
+    const nextRole = patch.role ?? current.role;
+    const nextStatus = patch.accountStatus ?? current.account_status;
+    const nextVerified = current.email_verification === 'VERIFIED';
+    const usableNow =
+      current.role === 'ADMIN' &&
+      current.account_status === 'ACTIVE' &&
+      current.email_verification === 'VERIFIED';
+    const staysUsable =
+      nextRole === 'ADMIN' && nextStatus === 'ACTIVE' && nextVerified;
 
-  sets.push('updated_at = now()');
-  params.push(employeeId);
+    if (usableNow && !staysUsable) {
+      const others = await client.query<{ total: string }>(
+        `SELECT COUNT(*)::text AS total FROM employees
+          WHERE role = 'ADMIN' AND account_status = 'ACTIVE'
+            AND email_verification = 'VERIFIED' AND employee_id <> $1`,
+        [employeeId],
+      );
+      if (
+        leavesNoActiveAdmin({
+          currentRole: current.role,
+          currentStatus: current.account_status,
+          emailVerified: true,
+          nextRole,
+          nextStatus,
+          otherActiveAdmins: Number(others.rows[0]?.total ?? '0'),
+        })
+      ) {
+        return { kind: 'last_admin' as const };
+      }
+    }
 
-  const rows = await query<EmployeeRow>(
-    `UPDATE employees SET ${sets.join(', ')} WHERE employee_id = $${params.length}
-     RETURNING ${COLUMNS}`,
-    params,
-  );
-  const row = rows[0];
-  if (!row) throw new Error('Employee not found');
-  return toRecord(row);
+    const sets: string[] = [];
+    const params: unknown[] = [];
+
+    if (patch.loginEmail !== undefined) {
+      params.push(patch.loginEmail);
+      sets.push(`login_email = $${params.length}`);
+    }
+    if (patch.role !== undefined) {
+      params.push(patch.role);
+      sets.push(`role = $${params.length}`);
+    }
+    if (patch.accountStatus !== undefined) {
+      params.push(patch.accountStatus);
+      sets.push(`account_status = $${params.length}`);
+    }
+
+    sets.push('updated_at = now()');
+    params.push(employeeId);
+
+    const updated = await client.query<EmployeeRow>(
+      `UPDATE employees SET ${sets.join(', ')} WHERE employee_id = $${params.length}
+       RETURNING ${COLUMNS}`,
+      params,
+    );
+    const row = updated.rows[0];
+    if (!row) return { kind: 'not_found' as const };
+    return { kind: 'updated' as const, record: toRecord(row) };
+  });
 }
 
 /** 设置密码同时完成邮箱验证（PRD PORT-ACT-002 / PORT-PWD-004）。 */

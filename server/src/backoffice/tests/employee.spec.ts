@@ -3,10 +3,80 @@ import assert from 'node:assert/strict';
 import {
   EMPLOYEE_ROLES,
   deriveDisplayStatus,
+  editsOwnAuthority,
   isSignInEligible,
   isValidEmail,
+  leavesNoActiveAdmin,
   normaliseEmail,
 } from '../contracts/employee';
+
+describe('last active admin guard (BUG-0329)', () => {
+  const lastAdmin = {
+    currentRole: 'ADMIN',
+    currentStatus: 'ACTIVE',
+    emailVerified: true,
+    otherActiveAdmins: 0,
+  } as const;
+
+  it('blocks demoting the only usable Admin', () => {
+    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, nextRole: 'OPERATION_ADMIN' }), true);
+  });
+
+  it('blocks deactivating the only usable Admin', () => {
+    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, nextStatus: 'INACTIVE' }), true);
+  });
+
+  it('allows it when another usable Admin remains', () => {
+    assert.equal(
+      leavesNoActiveAdmin({ ...lastAdmin, otherActiveAdmins: 1, nextRole: 'OPERATION_ADMIN' }),
+      false,
+    );
+  });
+
+  it('ignores edits that keep the account a usable Admin', () => {
+    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, nextRole: 'ADMIN', nextStatus: 'ACTIVE' }), false);
+  });
+
+  it('does not count an unverified Admin as usable', () => {
+    assert.equal(
+      leavesNoActiveAdmin({ ...lastAdmin, emailVerified: false, nextRole: 'OPERATION_ADMIN' }),
+      false,
+    );
+  });
+
+  it('ignores non-Admins and Admins that are already inactive', () => {
+    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, currentRole: 'FINANCE', nextRole: 'OPERATION_AI' }), false);
+    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, currentStatus: 'INACTIVE', nextStatus: 'INACTIVE' }), false);
+  });
+});
+
+describe('self-edit guard (BUG-0329)', () => {
+  const base = {
+    actorEmployeeId: 'e-1',
+    targetEmployeeId: 'e-1',
+    currentRole: 'ADMIN',
+    currentStatus: 'ACTIVE',
+  } as const;
+
+  it('blocks changing your own role', () => {
+    assert.equal(editsOwnAuthority({ ...base, nextRole: 'OPERATION_ADMIN' }), true);
+  });
+
+  it('blocks deactivating yourself', () => {
+    assert.equal(editsOwnAuthority({ ...base, nextStatus: 'INACTIVE' }), true);
+  });
+
+  it('allows editing someone else', () => {
+    assert.equal(
+      editsOwnAuthority({ ...base, targetEmployeeId: 'e-2', nextRole: 'OPERATION_ADMIN', nextStatus: 'INACTIVE' }),
+      false,
+    );
+  });
+
+  it('allows yourself when the role, status and email are unchanged', () => {
+    assert.equal(editsOwnAuthority({ ...base, nextRole: 'ADMIN', nextStatus: 'ACTIVE' }), false);
+  });
+});
 
 describe('employee display status', () => {
   it('maps inactive accounts to Inactive regardless of verification', () => {

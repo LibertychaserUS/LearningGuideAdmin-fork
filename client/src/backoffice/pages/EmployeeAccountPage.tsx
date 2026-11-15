@@ -22,6 +22,7 @@ import type { Locale } from "../lib/i18n/config";
 import { t } from "../lib/i18n/messages";
 import { boFetch } from "../lib/api";
 import { useResizableColumns } from "../components/resizableColumns";
+import { roleAccessRows } from "../rbac/permissions";
 
 type Filters = { email: string; role: string; status: string };
 
@@ -627,6 +628,25 @@ export function EmployeeAccountClient({ locale }: { locale: Locale }) {
                   ))}
                 </select>
               </label>
+
+              {/* BUG-0329：分配角色时先说清这个角色能看到哪些菜单、能做到哪一步，
+                  数据来自 ROLE_MATRIX，避免凭角色名猜权限造成误分配。 */}
+              {editor.role ? (
+                <div className="roleAccess" aria-live="polite">
+                  <span className="fieldLabel">{t(locale, "employees.roleAccess")}</span>
+                  <ul className="roleAccessList">
+                    {roleAccessRows(editor.role as EmployeeRole).map(({ menu, level }) => (
+                      <li key={menu} className="roleAccessRow" data-level={level}>
+                        <span>{t(locale, `nav.${menu}`)}</span>
+                        <span className={`roleAccessLevel roleAccessLevel${level}`}>
+                          {t(locale, `permissionLevels.${level}`)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <span className="fieldHint">{t(locale, "employees.roleAccessHint")}</span>
+                </div>
+              ) : null}
 
               <div className="field">
                 <span className="fieldLabel">{t(locale, "employees.fields.status")}</span>

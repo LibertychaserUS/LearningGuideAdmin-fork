@@ -74,6 +74,59 @@ export function isSignInEligible(
   return accountStatus === 'ACTIVE' && emailVerification === 'VERIFIED';
 }
 
+/**
+ * BUG-0329：员工账号是唯一能分配角色的入口，把最后一个**可登录**的 Admin 降级或停用
+ * 会让团队永久失去账号管理能力（非 Admin 连入口都看不到）。已有的
+ * PROTECTED_ADMIN_ACCOUNT 只保护 bootstrap 账号，保护不到这里。
+ *
+ * 「可登录」= ADMIN + ACTIVE + 邮箱已验证：邀请创建的管理员是 PENDING_VERIFICATION，
+ * 既不写密码也登不进来，不能算作「还有一个管理员」。
+ * `otherActiveAdmins` 由调用方在事务内、以 FOR UPDATE 锁定目标行之后统计。
+ */
+export function leavesNoActiveAdmin(input: {
+  currentRole: EmployeeRole;
+  currentStatus: AccountStatus;
+  emailVerified: boolean;
+  nextRole?: EmployeeRole;
+  nextStatus?: AccountStatus;
+  otherActiveAdmins: number;
+}): boolean {
+  const usableNow =
+    input.currentRole === 'ADMIN' &&
+    input.currentStatus === 'ACTIVE' &&
+    input.emailVerified;
+  if (!usableNow) return false;
+  const staysUsable =
+    (input.nextRole ?? input.currentRole) === 'ADMIN' &&
+    (input.nextStatus ?? input.currentStatus) === 'ACTIVE' &&
+    input.emailVerified;
+  if (staysUsable) return false;
+  return input.otherActiveAdmins === 0;
+}
+
+/**
+ * BUG-0329（补充）：不允许管理员改动自己的权限或停用自己。
+ *
+ * 「最后一个管理员」规则在有种子管理员的库上不可达（种子账号受触发器保护且始终可用），
+ * 真正每天都在发生的误操作是"把自己降级 / 停用自己"——这一条与库状态无关，任何环境都能拦住。
+ * 改自己的邮箱、密码不受影响。
+ */
+export function editsOwnAuthority(input: {
+  actorEmployeeId: string;
+  targetEmployeeId: string;
+  currentRole: EmployeeRole;
+  currentStatus: AccountStatus;
+  nextRole?: EmployeeRole;
+  nextStatus?: AccountStatus;
+}): boolean {
+  if (input.actorEmployeeId !== input.targetEmployeeId) return false;
+  const changesRole =
+    input.nextRole !== undefined && input.nextRole !== input.currentRole;
+  const deactivates =
+    input.nextStatus === 'INACTIVE' && input.currentStatus !== 'INACTIVE';
+  return changesRole || deactivates;
+}
+
 export type SessionEmployee = {
   employeeId: string;
   loginEmail: string;

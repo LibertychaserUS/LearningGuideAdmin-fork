@@ -222,7 +222,9 @@
       "resent": "新的激活邮件发送结果：{result}，此前的链接立即失效。",
       "linkReady": "一次性链接已生成。",
       "linkLabel": "一次性链接"
-    }
+    },
+    "roleAccess": "该角色可访问的菜单",
+    "roleAccessHint": "菜单可见性与操作级别来自 PRD §3.2 角色矩阵；员工账号管理仅管理员可用。"
   },
   "pagination": {
     "showing": "第 {from}–{to} 条 / 共 {total} 条",
@@ -269,7 +271,9 @@
     "PASSWORD_MISMATCH": "两次输入的密码不一致。",
     "PASSWORD_SAME_AS_CURRENT": "新密码不能与当前密码相同。",
     "INTERNAL_ERROR": "系统出现异常，请重试。",
-    "serverGeneric": "操作失败，请重试。"
+    "serverGeneric": "操作失败，请重试。",
+    "LAST_ADMIN": "至少需要保留一个可用的管理员账号，无法降级或停用最后一个管理员。",
+    "SELF_ACCOUNT_EDIT": "不能修改自己的角色或停用自己；请让另一位管理员操作。"
   },
   "aiTutor": {
     "title": "AI 导师",
@@ -2367,5 +2371,11 @@
     "detail": "错误信息：{message}",
     "unknown": "未知错误",
     "reload": "重新加载"
+  },
+  "permissionLevels": {
+    "NONE": "无权限",
+    "VIEW": "只读",
+    "EDIT": "可编辑",
+    "FULL": "全部"
   }
 }

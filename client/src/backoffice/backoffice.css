@@ -603,6 +603,64 @@ body {
   line-height: 1.25;
 }
 
+/* BUG-0329：分配给员工角色时展示该角色的菜单可见性与操作级别。 */
+.roleAccess {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--lg-line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.roleAccessList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.roleAccessRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--lg-ink);
+}
+
+.roleAccessLevel {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: #eef2f6;
+  color: var(--lg-muted);
+}
+
+.roleAccessLevelVIEW {
+  background: #e8f1ff;
+  color: #1d4ed8;
+}
+
+.roleAccessLevelEDIT {
+  background: #fff4e5;
+  color: #b45309;
+}
+
+.roleAccessLevelFULL {
+  background: #e7f7ed;
+  color: #15803d;
+}
+
+.roleAccessRow[data-level="NONE"] {
+  color: var(--lg-muted);
+}
+
 .inputShell {
   display: flex;
   align-items: center;

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 
+import { Logger } from '@nestjs/common';
+
 import type { SessionEmployee } from '../contracts/employee';
 import type { AuditEventInput } from '../repositories/auditRepository';
 import { isActionAllowed, type ActionKind } from '../modules/rbac/permissions';
 import {
   createPortalStudentsClient,
+  portalBaseMismatch,
   StudentsError,
   type PortalStudentsClient,
 } from '../modules/students/portalStudentsClient';
@@ -314,6 +317,174 @@ describe('portal students client', () => {
       (error: unknown) =>
         error instanceof StudentsError &&
         error.code === 'STUDENTS_NOT_CONNECTED',
+    );
+  });
+
+  // BUG-0330：学员在 Portal 个人设置里填的 country / ageRange / education /
+  // areasOfInterest 必须原样到达 BackOffice 学生详情，后端不得裁剪或改名。
+  it('returns the student profile exactly as Portal sends it', async () => {
+    process.env.PORTAL_STUDENTS_BASE_URL = 'https://portal.example';
+    process.env.PORTAL_STUDENTS_TOKEN = 'test-token';
+    delete process.env.PORTAL_HELPDESK_BASE_URL;
+    delete process.env.PORTAL_HELPDESK_TOKEN;
+    const detail = {
+      id: 'u1',
+      name: 'Round Trip',
+      email: 'round-trip@example.test',
+      profile: {
+        country: 'Hong Kong',
+        ageRange: '25–34',
+        education: 'Postgraduate',
+        interests: ['Philosophy', 'History'],
+        language: 'en-GB',
+      },
+    };
+    const seen: string[] = [];
+    const client = createPortalStudentsClient({
+      fetchImpl: (input) => {
+        seen.push(input as string);
+        return Promise.resolve(
+          new Response(JSON.stringify(detail), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      },
+    });
+    const service = createStudentsService({
+      portal: client,
+      audit: () => Promise.resolve(),
+    });
+
+    const got = await service.detail('u1');
+
+    assert.deepEqual(got, detail);
+    assert.equal(seen[0], 'https://portal.example/api/integration/students/u1');
+  });
+
+  // BUG-0330 的第二种解释：Admin 连的 Portal 不是学员保存资料的那个环境。
+  // 客户端只是忠实转述它连的那一个 Portal，所以环境配错时详情一定是空的。
+  it('reports the profile of the Portal it is pointed at, so a wrong base shows an empty one', async () => {
+    const filled = {
+      id: 'u1',
+      profile: {
+        country: 'Hong Kong',
+        ageRange: '25–34',
+        education: 'Postgraduate',
+        interests: ['Philosophy'],
+        language: 'en-GB',
+      },
+    };
+    const empty = {
+      id: 'u1',
+      profile: {
+        country: null,
+        ageRange: null,
+        education: null,
+        interests: [],
+        language: 'en-GB',
+      },
+    };
+    const ask = async (base: string, body: unknown) => {
+      process.env.PORTAL_STUDENTS_BASE_URL = base;
+      process.env.PORTAL_STUDENTS_TOKEN = 'test-token';
+      delete process.env.PORTAL_HELPDESK_BASE_URL;
+      delete process.env.PORTAL_HELPDESK_TOKEN;
+      const client = createPortalStudentsClient({
+        fetchImpl: (input) => {
+          assert.equal(input, `${base}/api/integration/students/u1`);
+          return Promise.resolve(
+            new Response(JSON.stringify(body), { status: 200 }),
+          );
+        },
+      });
+      return (await client.get('/students/u1')) as {
+        profile: Record<string, unknown>;
+      };
+    };
+
+    const sit = await ask('https://sit.portal.example', filled);
+    const uat = await ask('https://uat.portal.example', empty);
+
+    assert.equal(sit.profile.country, 'Hong Kong');
+    assert.equal(uat.profile.country, null);
+  });
+
+  it('takes students from the students base even when the HelpDesk base points at another Portal', async () => {
+    process.env.PORTAL_STUDENTS_BASE_URL = 'https://students.portal.example';
+    process.env.PORTAL_STUDENTS_TOKEN = 'students-token';
+    process.env.PORTAL_HELPDESK_BASE_URL = 'https://helpdesk.portal.example';
+    process.env.PORTAL_HELPDESK_TOKEN = 'helpdesk-token';
+    const seen: { url: string; auth: string | null }[] = [];
+    const client = createPortalStudentsClient({
+      fetchImpl: (input, init) => {
+        seen.push({
+          url: input as string,
+          auth: new Headers(init?.headers).get('authorization'),
+        });
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'u1' }), { status: 200 }),
+        );
+      },
+    });
+
+    await client.get('/students/u1');
+
+    assert.equal(
+      seen[0].url,
+      'https://students.portal.example/api/integration/students/u1',
+    );
+    assert.equal(seen[0].auth, 'Bearer students-token');
+  });
+
+  // BUG-0330 环境错配只告警、不阻断：两个地址指向不同 Portal 时提示一次，取数仍用 students 的。
+  it('warns once about two different Portal bases, and keeps using the students one', async () => {
+    process.env.PORTAL_STUDENTS_BASE_URL =
+      'https://warn-students.portal.example';
+    process.env.PORTAL_STUDENTS_TOKEN = 'students-token';
+    process.env.PORTAL_HELPDESK_BASE_URL =
+      'https://warn-helpdesk.portal.example';
+    process.env.PORTAL_HELPDESK_TOKEN = 'helpdesk-token';
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    try {
+      const client = createPortalStudentsClient({
+        fetchImpl: () =>
+          Promise.resolve(
+            new Response(JSON.stringify({ id: 'u1' }), { status: 200 }),
+          ),
+      });
+      await client.get('/students/u1');
+      await client.get('/students/u1');
+
+      const mismatchWarnings = warn.mock.calls.filter((call) =>
+        String(call[0]).includes('point at different Portals'),
+      );
+      assert.equal(
+        mismatchWarnings.length,
+        1,
+        'warned once per pair, not per request',
+      );
+      assert.match(
+        String(mismatchWarnings[0][0]),
+        /warn-students\.portal\.example/,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet when the bases differ only by a trailing slash or one is unset', () => {
+    process.env.PORTAL_STUDENTS_BASE_URL = 'https://same.portal.example/';
+    process.env.PORTAL_HELPDESK_BASE_URL = 'https://same.portal.example';
+    assert.equal(portalBaseMismatch(), null);
+
+    delete process.env.PORTAL_HELPDESK_BASE_URL;
+    assert.equal(
+      portalBaseMismatch(),
+      null,
+      'one base alone is the documented fallback',
     );
   });
 });
