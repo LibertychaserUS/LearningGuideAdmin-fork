@@ -32,9 +32,14 @@ const KEEP = new Set([
   'clearInterval',
   'queueMicrotask',
   'structuredClone',
+  // jsdom 的 window 自带一个名为 undefined 的自属性；复制到 globalThis 会撞上不可重定义的 undefined。
+  'undefined',
 ])
 for (const key of Object.getOwnPropertyNames(win)) {
-  if (KEEP.has(key) || key in globalThis) continue
+  // Node 26 起 Web Storage 全局「存在但为 undefined」（要 --localstorage-file 才有值），
+  // 只按 `key in globalThis` 跳过会把 localStorage 挡在 jsdom 之外，组件测试里它就是空的。
+  if (KEEP.has(key)) continue
+  if ((globalThis as unknown as Record<string, unknown>)[key] !== undefined) continue
   Object.defineProperty(globalThis, key, {
     configurable: true,
     get: () => (win as unknown as Record<string, unknown>)[key],
