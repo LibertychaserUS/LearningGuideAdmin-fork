@@ -86,6 +86,48 @@ function depthOfOrderKey(orderKey: string): number {
   return orderKey.split('.').length;
 }
 
+/**
+ * 一行 pcAlignment → Plan 输入的时间源审计 pin（C7 / ALN-7）。
+ *
+ * ASR / 强制对齐的置信度必须带进来：不变量要求这两类源携带 confidence，缺失即
+ * TIMING_SOURCE_MISSING。丢掉它会把每条 ASR rendition 都判成「无机器时间源」，
+ * 于是 owner 定下的 ASR 默认路径永远过不了发布门。
+ */
+export function timingSourcePinFromAlignment(row: {
+  renditionKey: string;
+  sourceKind: string | null;
+  sourceArtifact: string | null;
+  modelVersion: string | null;
+  params: Prisma.JsonValue | null;
+  ruleVersion: string | null;
+  confidence: number | null;
+}): RenditionTimingSourcePin | null {
+  if (
+    row.sourceKind === null ||
+    row.sourceArtifact === null ||
+    row.ruleVersion === null
+  ) {
+    return null;
+  }
+  const modelPinned =
+    row.sourceKind === 'asr' || row.sourceKind === 'forced-alignment';
+  return {
+    renditionKey: row.renditionKey,
+    sourceKind: row.sourceKind as PlanTimingSourceKind,
+    sourceArtifact: row.sourceArtifact,
+    ruleVersion: row.ruleVersion,
+    ...(modelPinned && row.modelVersion !== null
+      ? { modelVersion: row.modelVersion }
+      : {}),
+    ...(modelPinned && row.params !== null
+      ? { params: AuditParamsSchema.parse(row.params) }
+      : {}),
+    ...(modelPinned && row.confidence !== null
+      ? { confidence: row.confidence }
+      : {}),
+  };
+}
+
 @Injectable()
 export class PartcAdminRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -518,28 +560,9 @@ export class PartcAdminRepository {
       RenditionTimingSourcePin
     >();
     for (const row of alignmentRows) {
-      if (
-        row.sourceKind === null ||
-        row.sourceArtifact === null ||
-        row.ruleVersion === null
-      ) {
-        continue;
-      }
       if (timingSourcesByRendition.has(row.renditionKey)) continue;
-      const modelPinned =
-        row.sourceKind === 'asr' || row.sourceKind === 'forced-alignment';
-      timingSourcesByRendition.set(row.renditionKey, {
-        renditionKey: row.renditionKey,
-        sourceKind: row.sourceKind as PlanTimingSourceKind,
-        sourceArtifact: row.sourceArtifact,
-        ruleVersion: row.ruleVersion,
-        ...(modelPinned && row.modelVersion !== null
-          ? { modelVersion: row.modelVersion }
-          : {}),
-        ...(modelPinned && row.params !== null
-          ? { params: AuditParamsSchema.parse(row.params) }
-          : {}),
-      });
+      const pin = timingSourcePinFromAlignment(row);
+      if (pin !== null) timingSourcesByRendition.set(row.renditionKey, pin);
     }
 
     const targets = PublishTargetSchema.array().parse(course.publishTargets);
