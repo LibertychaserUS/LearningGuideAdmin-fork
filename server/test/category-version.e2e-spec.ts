@@ -118,6 +118,12 @@ interface VersionDetail {
 
 const PREFIX = `E2E-CAT-VER-${Date.now()}`;
 
+// R16：环境语义显式化——测试进程显式声明 Sandbox（否则导出被拒）。
+// PRD §16.2：导出默认只允许线上版本；本套件『历史版本导出用该版本快照分类路径
+// （C6/C8）』验证的是 Sandbox 调试用的历史快照导出路径，显式开启调试开关。
+process.env.VERSION_NUMBERING_MODE = 'sandbox';
+process.env.ALLOW_DRAFT_EXPORT = 'on';
+
 // 导出作业由 DB 队列 worker 每 2s 轮询一次；CI 上给足余量，避免默认 5s 超时抖动。
 jest.setTimeout(60_000);
 
@@ -760,6 +766,29 @@ describe('Course category version, restore and draft state (e2e)', () => {
     // O1：显式状态语义——编辑后手动改回原值仍算"有草稿"，不再用内容哈希反推
     expect((await getDetail(course.id)).hasDraft).toBe(true);
     expect(await hasDraftInList(course.code)).toBe(true);
+  });
+
+  it('publish of an incomplete course is rejected with 409 PUBLISH_BLOCKED (PRD §15.2 gate preserved; N2 regression)', async () => {
+    const code = `${PREFIX}-BLOCKED`.toUpperCase();
+    const created: SuccessResponse<CourseDetail> = await agent
+      .post('/api/backoffice/courses')
+      .send({
+        code,
+        slug: code.toLowerCase(),
+        title: `${code} title`,
+        categoryId: categoryA.id,
+        learningMode: 'TEXT_ONLY',
+        defaultContentLanguage: 'en-GB',
+        learningLanguages: ['en-GB'],
+      })
+      .expect(201);
+    const res = await agent
+      .post(`/api/backoffice/courses/${created.body.data.id}/publish`)
+      .send({});
+    expect(res.status).toBe(409);
+    expect(
+      (res.body as { error: { code: string; message: string } }).error.code,
+    ).toBe('PUBLISH_BLOCKED');
   });
 
   it('exports a historical version with that version category path, not the current row (C6, C8)', async () => {

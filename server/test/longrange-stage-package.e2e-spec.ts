@@ -10,6 +10,7 @@ import { App } from 'supertest/types';
 
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/common/app-setup';
+import { partcContentKey } from '../src/partc/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { signInAs } from './helpers/employee-session';
 
@@ -44,6 +45,12 @@ import { signInAs } from './helpers/employee-session';
  */
 
 jest.setTimeout(600_000);
+
+// R16：环境语义显式化——测试进程显式声明 Sandbox（否则导出被拒）。
+// PRD §16.2：导出默认只允许线上版本；本套件导出 working 草稿验证阶段身份与
+// 包闭合，属 Sandbox 调试路径，显式开启调试开关。
+process.env.VERSION_NUMBERING_MODE = 'sandbox';
+process.env.ALLOW_DRAFT_EXPORT = 'on';
 
 const PREFIX = `E2E-LRT34-${Date.now()}`;
 const FIXTURE_ROOT = path.resolve(__dirname, 'fixtures/longrange');
@@ -295,7 +302,9 @@ async function buildUniqueVariant(
   };
   const content = manifest.content as Record<string, unknown>;
   content.courseKey = key;
-  content.specPins = [{ contentKey: lesson, version: 1 }];
+  // R14：本包的主内容 pin 必须与导入侧派生的课程级命名空间键一致
+  // （partcContentKey(key, lesson)），否则 SPEC_PIN_UNKNOWN 整包失败。
+  content.specPins = [{ contentKey: partcContentKey(key, lesson), version: 1 }];
   content.stages = [
     {
       courseKey: key,
@@ -543,12 +552,7 @@ async function buildUniqueVariant(
   zip.file(
     `subtitles/${lesson}.zh-CN.srt`,
     Buffer.from(
-      [
-        '1',
-        '00:00:00,500 --> 00:00:02,000',
-        '基准学习点',
-        '',
-      ].join('\n'),
+      ['1', '00:00:00,500 --> 00:00:02,000', '基准学习点', ''].join('\n'),
       'utf8',
     ),
   );
@@ -1069,7 +1073,8 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
   // ---- 生命周期 -----------------------------------------------------------
 
   beforeAll(async () => {
-    app = await buildApp({});
+    // R16：主 App 必须显式 Sandbox（buildApp 缺省会删除 VERSION_NUMBERING_MODE）。
+    app = await buildApp({ numbering: 'sandbox' });
     prisma = app.get(PrismaService);
     agent = await signInAs(app, 'ADMIN');
   });
@@ -1249,7 +1254,10 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
     ].join('\n');
     return buildUniqueVariant({
       courseKey,
-      lessonCode: `${courseKey}-L1`,
+      // R14 之后 lesson_code 无需再自造课程级前缀：导入派生的 contentKey 已
+      // 系统性地带课程级命名空间（partcContentKey(courseKey, lesson_code)），
+      // 再前缀会造成双重命名空间、renditionKey 超 stable-token 长度上限。
+      lessonCode: 'L1',
       srt,
       docx: { bytes: docx, markers },
       exhibits: [
@@ -1312,9 +1320,7 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
   it('T3-3 same exhibit at three distinct timeMs yields three triggers in both preview and the exported package', async () => {
     const { courseId } = await ensureExhibitImported();
     const lessons = await previewOf(courseId);
-    const lesson = lessons.find(
-      (entry) => entry.code === `${exhibitCourseKey}-L1`,
-    );
+    const lesson = lessons.find((entry) => entry.code === 'L1');
     expect(lesson).toBeDefined();
     const previewEx1 = lesson!.exhibits.find(
       (exhibit) => exhibit.code === 'EX1',
@@ -1347,7 +1353,8 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
     // 本身保留了几条触发 rendition。断言仍只使用 HTTP 输出（preview / 导出包）。
     const partcDerivedCount = await prisma.pcRendition.count({
       where: {
-        contentKey: `${exhibitCourseKey}-L1`,
+        // R14：导入派生的 contentKey 带课程级命名空间（与导入侧共享公式一致）。
+        contentKey: partcContentKey(exhibitCourseKey, 'L1'),
         blockId: 'EX1',
         modality: 'video',
       },
@@ -1376,9 +1383,7 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
   it('T3-4 different exhibits at the same time are legal (both retained)', async () => {
     const { courseId } = await ensureExhibitImported();
     const lessons = await previewOf(courseId);
-    const lesson = lessons.find(
-      (entry) => entry.code === `${exhibitCourseKey}-L1`,
-    )!;
+    const lesson = lessons.find((entry) => entry.code === 'L1')!;
     const ex1 = lesson.exhibits.find((exhibit) => exhibit.code === 'EX1')!;
     const ex2 = lesson.exhibits.find((exhibit) => exhibit.code === 'EX2')!;
     const ex1Times = ex1.triggers.map((trigger) => trigger.timeSeconds);
@@ -1708,7 +1713,8 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
       // ② 合法 v2 形状但 provenance.sourceEnv=production（伪造来源）→ 拒绝。
       const prodEnvVariant = await buildUniqueVariant({
         courseKey: `${PREFIX}-V2-PROD`,
-        lessonCode: `${PREFIX}-V2-PROD-L1`,
+        // R14：lesson_code 无需课程级前缀（系统级命名空间保证键唯一）。
+        lessonCode: 'L1',
         provenanceSourceEnv: 'production',
       });
       const prodEnv = await uploadAs(
@@ -1727,7 +1733,8 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
       createdCourseCodes.push(sandboxKey);
       const sandboxVariant = await buildUniqueVariant({
         courseKey: sandboxKey,
-        lessonCode: `${sandboxKey}-L1`,
+        // R14：lesson_code 无需课程级前缀（系统级命名空间保证键唯一）。
+        lessonCode: 'L1',
         provenanceSourceEnv: 'sandbox',
       });
       const sandboxJob = await uploadAs(

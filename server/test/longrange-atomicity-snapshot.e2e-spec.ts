@@ -15,6 +15,7 @@ import { App } from 'supertest/types';
 
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/common/app-setup';
+import { partcContentKey } from '../src/partc/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { E2E_PASSWORD, signInAs } from './helpers/employee-session';
 import { purgePartcCourse } from './helpers/partc-purge';
@@ -46,6 +47,12 @@ import { purgePartcCourse } from './helpers/partc-purge';
  */
 
 jest.setTimeout(900_000);
+
+// R16：环境语义显式化——测试进程显式声明 Sandbox（否则导出被拒）。
+// PRD §16.2：导出默认只允许线上版本；F6/T6.4 跨环境往返用「导出 working 草稿」
+// 验证快照投影稳定与包内容往返，属 Sandbox 调试路径，显式开启调试开关。
+process.env.VERSION_NUMBERING_MODE = 'sandbox';
+process.env.ALLOW_DRAFT_EXPORT = 'on';
 
 const PREFIX = `E2E-LR-T56-${Date.now()}`;
 // 真实包 F2 的 courseKey 固定为 modeling-life；测试库的 PcContentVersion 是
@@ -623,9 +630,11 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
       orderBy: { orderKey: 'asc' },
       select: { stageKey: true, objectiveKeys: true },
     });
+    // R14：导入派生的 contentKey 带课程级命名空间（与导入侧共享公式一致），
+    // arrange 必须按同一公式查找 rendition，否则签收链路落空、ALN-1 全红。
     const contentByStage: Record<string, string> = {
-      'lesson-1': 'L1',
-      'lesson-2': 'L2',
+      'lesson-1': partcContentKey(MODELING_KEY, 'L1'),
+      'lesson-2': partcContentKey(MODELING_KEY, 'L2'),
     };
     for (const [index, stage] of stages.entries()) {
       const contentKey = contentByStage[stage.stageKey];
@@ -963,7 +972,7 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
     // 半成品检查：草稿投影必须能完整读取（课程详情有课时、预览可读）。
     const detail = await courseDetail(courseId);
     expect(detail.lessons.length).toBeGreaterThan(0);
-    const preview = (await coursePreview(courseId)) as PreviewView;
+    const preview = await coursePreview(courseId);
     expect(preview).toBeTruthy();
 
     expect(cleanFailure).toBe(true);

@@ -31,6 +31,12 @@ import { signInAs } from './helpers/employee-session';
 
 jest.setTimeout(900_000);
 
+// R16：环境语义显式化——测试进程显式声明 Sandbox（否则导出被拒）。
+// PRD §16.2：导出默认只允许线上版本；本套件导出 working 草稿验证时间身份携带，
+// 属 Sandbox 调试路径，显式开启调试开关。
+process.env.VERSION_NUMBERING_MODE = 'sandbox';
+process.env.ALLOW_DRAFT_EXPORT = 'on';
+
 const FIXTURE_ROOT = path.resolve(__dirname, 'fixtures/longrange');
 const F2_ZIP = path.join(FIXTURE_ROOT, 'F2_subtitles/F2_subtitles.zip');
 const F3_ZIP = path.join(FIXTURE_ROOT, 'F3_chapters/F3_chapters.zip');

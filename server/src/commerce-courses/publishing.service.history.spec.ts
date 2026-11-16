@@ -4,8 +4,12 @@ import {
   importedDraftHistoryDetail,
 } from './publishing.service';
 import { CommerceCoursesService } from './commerce-courses.service';
-import { captureVersionSnapshot } from './version-snapshot';
+import {
+  captureVersionSnapshot,
+  snapshotToCompletenessInput,
+} from './version-snapshot';
 import { snapshotContentHash } from './content-hash';
+import { computeCompleteness } from './completeness';
 
 jest.mock('./version-snapshot', () => ({
   captureVersionSnapshot: jest.fn(),
@@ -16,9 +20,23 @@ jest.mock('./version-snapshot', () => ({
 jest.mock('./content-hash', () => ({
   snapshotContentHash: jest.fn(),
 }));
+jest.mock('./completeness', () => {
+  // requireActual 返回 any；断言成模块类型，让 mock 工厂的返回值可被下游按真实形状使用。
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const actual = jest.requireActual(
+    './completeness',
+  ) as typeof import('./completeness');
+  return {
+    ...actual,
+    computeCompleteness: jest.fn(),
+  };
+});
 
 const captureMock = captureVersionSnapshot as unknown as jest.Mock;
 const hashMock = snapshotContentHash as unknown as jest.Mock;
+const completenessInputMock =
+  snapshotToCompletenessInput as unknown as jest.Mock;
+const computeCompletenessMock = computeCompleteness as unknown as jest.Mock;
 
 function publishing(
   prismaOverrides: Record<string, unknown> = {},
@@ -32,9 +50,6 @@ function publishing(
     {} as never,
     config as never,
   );
-  jest
-    .spyOn(service, 'completenessForDraft')
-    .mockResolvedValue({ canPublish: true, publishBlockers: [] } as never);
   return { service, prisma };
 }
 
@@ -53,16 +68,27 @@ beforeEach(() => {
   jest.clearAllMocks();
   captureMock.mockResolvedValue({});
   hashMock.mockResolvedValue('hash');
+  // N2 修复后 publish 的完成度判定从锁内快照计算（本文件只测 History 细节，
+  // 门禁一律放行；门禁本身由 publishing.service.publish.spec.ts 锁定）。
+  completenessInputMock.mockReturnValue(undefined);
+  computeCompletenessMock.mockReturnValue({
+    canPublish: true,
+    publishBlockers: [],
+  });
 });
 
 describe('History detail — PRD §21 original/new values', () => {
   it('PUBLISH records the previous version label as from and the new one as to', async () => {
     const tx = {
-      $queryRaw: jest
-        .fn()
-        .mockResolvedValue([
-          { draftRevision: 2, liveBaseRevision: 1, liveVersionId: null },
-        ]),
+      $queryRaw: jest.fn().mockResolvedValue([
+        {
+          draftRevision: 2,
+          liveBaseRevision: 1,
+          liveVersionId: null,
+          trialEnabled: false,
+        },
+      ]),
+      trialSetting: { findMany: jest.fn().mockResolvedValue([]) },
       courseVersion: {
         findFirst: jest.fn().mockResolvedValue({
           versionNo: 2,

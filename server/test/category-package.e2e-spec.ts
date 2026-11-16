@@ -54,6 +54,12 @@ jest.setTimeout(120_000);
 
 const PREFIX = `E2E-CAT-PKG-${Date.now()}`;
 
+// R16：环境语义显式化——测试进程显式声明 Sandbox（否则导出被拒）。
+// PRD §16.2：导出默认只允许线上版本；本套件导出 working 草稿验证包内分类路径，
+// 属 Sandbox 调试路径，显式开启调试开关。
+process.env.VERSION_NUMBERING_MODE = 'sandbox';
+process.env.ALLOW_DRAFT_EXPORT = 'on';
+
 /** 包暂存目录（本地驱动回退路径；与 commerce.config.ts 的默认值一致）。 */
 const STAGING_ROOT = path.resolve(
   process.env.COURSE_PACKAGE_ROOT?.trim() || 'storage/course-package',

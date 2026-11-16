@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -9,6 +10,12 @@ export interface CommerceCourseConfig {
   environmentLabel: string;
   publicSiteUrl: string;
   versionNumberingMode: VersionNumberingMode;
+  /**
+   * 环境语义是否已确定（R16）：VERSION_NUMBERING_MODE 显式配置，或未显式但
+   * NODE_ENV=production 推导为生产。为 false（两个信号都缺）时导出路径必须
+   * 拒绝——绝不静默把 sourceEnv 写成 sandbox。使用点按 `!== true` 拒绝（fail closed）。
+   */
+  environmentDetermined?: boolean;
   stripeSecretKey?: string;
   mediaRoot: string;
   packageStagingRoot: string;
@@ -37,6 +44,35 @@ export interface CommerceCourseConfig {
 
 const MB = 1024 * 1024;
 
+/**
+ * ALLOW_DRAFT_EXPORT 休眠开关（默认关闭，fail closed）。
+ *
+ * PRD §16.2（Aligned Design §16.2 L177）：『导出的是当前线上版本（已发布到
+ * Sandbox、测试过的），不能选草稿/其他版本』。草稿/历史版本导出仅用于 Sandbox
+ * 调试，显式设 ALLOW_DRAFT_EXPORT=on 才放行；缺省或无法识别的值一律关闭
+ * （镜像 partc/compiler/parse.ts 的 packageSourceEnforcementFromEnv 先例）。
+ */
+export function draftExportAllowedFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const raw = env.ALLOW_DRAFT_EXPORT?.trim().toLowerCase();
+  return raw === 'on' || raw === 'true' || raw === '1';
+}
+
+/** 生产模式启动告警：进程内只发一次（工厂可能被多次编译调用）。 */
+let productionModeWarningEmitted = false;
+
+/** 仅供测试：重置告警旗标（commerce.config.spec.ts 用）。 */
+export function resetProductionModeWarningForTests(): void {
+  productionModeWarningEmitted = false;
+}
+
+function warnProductionModeOnce(message: string): void {
+  if (productionModeWarningEmitted) return;
+  productionModeWarningEmitted = true;
+  Logger.warn(message, 'CommerceCourseConfig');
+}
+
 export function commerceConfig(config: ConfigService): CommerceCourseConfig {
   const num = (key: string, fallback: number): number => {
     const raw = config.get<string>(key);
@@ -47,13 +83,41 @@ export function commerceConfig(config: ConfigService): CommerceCourseConfig {
     .trim()
     .toLowerCase();
   const environmentRaw = (config.get<string>('ENVIRONMENT_LABEL') ?? '').trim();
+  const nodeEnv = (config.get<string>('NODE_ENV') ?? '').trim().toLowerCase();
+
+  // R16：环境语义显式化。显式配置 → 该模式；未显式但 NODE_ENV=production →
+  // 推导生产并告警一次；两个信号都缺 → 编号回退 sandbox 但 environmentDetermined
+  // = false，导出路径据此拒绝（不再静默写 sourceEnv=sandbox）。
+  const numberingExplicit =
+    numberingRaw === 'production' || numberingRaw === 'sandbox';
+  let versionNumberingMode: VersionNumberingMode;
+  let environmentDetermined: boolean;
+  if (numberingExplicit) {
+    versionNumberingMode = numberingRaw;
+    environmentDetermined = true;
+  } else if (nodeEnv === 'production') {
+    versionNumberingMode = 'production';
+    environmentDetermined = true;
+  } else {
+    versionNumberingMode = 'sandbox';
+    environmentDetermined = false;
+  }
+  if (versionNumberingMode === 'production') {
+    warnProductionModeOnce(
+      numberingExplicit
+        ? 'Production environment active (VERSION_NUMBERING_MODE=production). ' +
+            'Course exports carry sourceEnv=production and use integer version numbering.'
+        : 'VERSION_NUMBERING_MODE is not set. NODE_ENV=production → deriving production mode. ' +
+            'Set VERSION_NUMBERING_MODE explicitly (sandbox or production) to confirm the environment.',
+    );
+  }
   return {
     environmentLabel:
       environmentRaw ||
-      (numberingRaw === 'production' ? 'Production' : 'Sandbox'),
+      (versionNumberingMode === 'production' ? 'Production' : 'Sandbox'),
     publicSiteUrl: config.get<string>('PUBLIC_SITE_URL')?.trim() || '',
-    versionNumberingMode:
-      numberingRaw === 'production' ? 'production' : 'sandbox',
+    versionNumberingMode,
+    environmentDetermined,
     stripeSecretKey:
       config.get<string>('STRIPE_SECRET_KEY')?.trim() || undefined,
     mediaRoot:

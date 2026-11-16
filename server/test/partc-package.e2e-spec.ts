@@ -14,7 +14,7 @@ import { configureApp } from '../src/common/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { captureVersionSnapshot } from '../src/commerce-courses/version-snapshot';
 import { buildMinimalMp4 } from '../src/partc/compiler/parse.fixtures';
-import { TEMPLATE_V2_HEADERS } from '../src/partc/contracts';
+import { TEMPLATE_V2_HEADERS, partcContentKey } from '../src/partc/contracts';
 import { signInAs } from './helpers/employee-session';
 
 /**
@@ -38,6 +38,13 @@ import { signInAs } from './helpers/employee-session';
 jest.setTimeout(180_000);
 
 const PREFIX = `E2E-PARTC-${Date.now()}`;
+
+// R16：环境语义显式化——测试进程显式声明 Sandbox（否则导出被拒）。
+// PRD §16.2：导出默认只允许线上版本；本套件为验证「草稿导出 → v2 包内容往返」
+// 的 Sandbox 调试路径（导入后未发布的课程直接导出 working 草稿），显式开启调试开关。
+process.env.VERSION_NUMBERING_MODE = 'sandbox';
+process.env.ALLOW_DRAFT_EXPORT = 'on';
+
 const STAGING_ROOT = path.resolve(
   process.env.COURSE_PACKAGE_ROOT?.trim() || 'storage/course-package',
 );
@@ -254,7 +261,10 @@ function buildPartcPackage(params: {
   sourceEnv?: 'sandbox' | 'production';
 }): BuiltPackage {
   const courseKey = params.courseKey;
-  const lessonCode = `${courseKey}-L1`;
+  // R14：模板 lesson_code 是课程局部语义（同一模板可被多门课复用）；本夹具
+  // 用固定局部码 'L1'，与导入侧派生的课程级命名空间内容键（partcContentKey）
+  // 独立，验证键注入而非靠 courseKey 嵌入 lesson_code 规避冲突。
+  const lessonCode = 'L1';
   const title = `${courseKey} title`;
   const files = new Map<string, Buffer>();
   const template = buildWorkbook(courseKey, lessonCode, title);
@@ -327,7 +337,9 @@ function buildPartcPackage(params: {
         },
       ],
       prerequisiteEdges: [],
-      specPins: [{ contentKey: lessonCode, version: 1 }],
+      specPins: [
+        { contentKey: partcContentKey(courseKey, lessonCode), version: 1 },
+      ],
       renditions: [],
       alignments: [],
       evidenceSpecs: [
@@ -677,9 +689,7 @@ describe('Part C v2 course package import/export (e2e)', () => {
       .get(`/api/backoffice/courses/${result.courseId}/preview`)
       .expect(200);
     const preview = dataOf<{ lessons: PreviewLesson[] }>(previewRes);
-    const lesson = preview.lessons.find(
-      (entry) => entry.code === `${courseKey}-L1`,
-    );
+    const lesson = preview.lessons.find((entry) => entry.code === 'L1');
     expect(lesson).toBeDefined();
     expect(
       lesson!.learningPoints.find((lp) => lp.code === '1.1')?.timeSeconds,
@@ -699,18 +709,20 @@ describe('Part C v2 course package import/export (e2e)', () => {
       'program',
       'step',
     ]);
+    // R14：内容键带课程级命名空间（与导入派生同一公式）。
+    const contentKey = partcContentKey(courseKey, 'L1');
     const spec = await prisma.pcContentSpec.findUnique({
       where: {
-        contentKey_version: { contentKey: `${courseKey}-L1`, version: 1 },
+        contentKey_version: { contentKey, version: 1 },
       },
     });
     expect(spec).not.toBeNull();
     const blocks = await prisma.pcBlock.findMany({
-      where: { contentKey: `${courseKey}-L1`, version: 1 },
+      where: { contentKey, version: 1 },
     });
     expect(blocks.length).toBeGreaterThanOrEqual(2); // video + exhibit block
     const renditions = await prisma.pcRendition.findMany({
-      where: { contentKey: `${courseKey}-L1` },
+      where: { contentKey },
     });
     expect(renditions.length).toBeGreaterThanOrEqual(3); // 2 LP + exhibit
     expect(
@@ -790,18 +802,19 @@ describe('Part C v2 course package import/export (e2e)', () => {
   it('exports verified Pc alignments with their audit tuple and keeps them across re-import (C10.4)', async () => {
     const courseKey = `${PREFIX}-AUDIT`;
     createdCourseCodes.push(courseKey);
-    const lessonCode = `${courseKey}-L1`;
+    const lessonCode = 'L1';
     const built = buildPartcPackage({
       courseKey,
       categoryPath: ['Society'],
     });
-    // 让包内 step 与工作区导出派生的 stepKey 同名（导出按课时生成 step）。
+    // 让包内 step 与工作区导出派生的 stepKey 同名（导出按课时生成 step；
+    // R14 后派生公式为 step-${courseKey}-${lessonCode}）。
     const stages = (
       built.manifest.content as unknown as {
         stages: Array<{ stageKey: string }>;
       }
     ).stages;
-    stages[1].stageKey = `step-${lessonCode}`;
+    stages[1].stageKey = `step-${courseKey}-${lessonCode}`;
     const job = await uploadPackage(await zipPackage(built), 'partc-audit.zip');
     const courseId = (await confirmToReady(job.jobId)).courseId;
 
@@ -828,7 +841,7 @@ describe('Part C v2 course package import/export (e2e)', () => {
       }>;
     };
     const step = firstContent.stages.find(
-      (stage) => stage.stageKey === `step-${lessonCode}`,
+      (stage) => stage.stageKey === `step-${courseKey}-${lessonCode}`,
     );
     expect(step).toBeDefined();
     const objectiveKey = step!.objectiveKeys[0];

@@ -7,7 +7,11 @@ import JSZip from 'jszip';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseStorageService } from './storage.service';
-import { COMMERCE_CONFIG, type CommerceCourseConfig } from './commerce.config';
+import {
+  COMMERCE_CONFIG,
+  draftExportAllowedFromEnv,
+  type CommerceCourseConfig,
+} from './commerce.config';
 import { PackageInspector, PackageError } from './package-inspector';
 import { PackageImporter, ImportError } from './package-importer';
 import type {
@@ -943,19 +947,37 @@ export class PackageJobsService {
   }
 
   // ===== 导出 =====
-  // 默认导出线上版本；versionLabel='working'/'draft' 导出当前草稿（不产生版本）；
-  // 其他值按版本号导出历史快照�?
+  // 默认导出线上版本（PRD §16.2：不能选草稿/其他版本）；versionLabel=
+  // 'working'/'draft' 或指定版本号仅经 ALLOW_DRAFT_EXPORT=on 放行（Sandbox 调试，
+  // fail closed）。R16：环境语义未配置时拒绝导出，不静默写 sourceEnv=sandbox。
   async startExport(
     courseId: string,
     actorEmployeeId: string | null,
     versionLabel?: string,
   ) {
+    if (this.config.environmentDetermined !== true) {
+      throw new PackageError(
+        'ENVIRONMENT_NOT_CONFIGURED',
+        500,
+        'Export refused: the environment is not configured. Set VERSION_NUMBERING_MODE=sandbox (or =production) and restart, so exports carry a truthful sourceEnv.',
+      );
+    }
     const course = await this.prisma.commerceCourse.findUnique({
       where: { id: courseId },
       select: { code: true },
     });
     if (!course) {
       throw new PackageError('COURSE_NOT_FOUND', 404, 'Course not found.');
+    }
+    if (versionLabel) {
+      // PRD §16.2：草稿/历史版本导出不是默认能力，只有显式开启调试开关才放行。
+      if (!draftExportAllowedFromEnv()) {
+        throw new PackageError(
+          'EXPORT_LIVE_VERSION_ONLY',
+          409,
+          'Only the live version can be exported (PRD §16.2). To export a draft or historical version for Sandbox debugging, set ALLOW_DRAFT_EXPORT=on on this server.',
+        );
+      }
     }
     let sourceVersionId: string | null;
     let label: string;

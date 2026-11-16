@@ -5,7 +5,8 @@ import { App } from 'supertest/types';
 
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/common/app-setup';
-import { PublishingService } from '../src/commerce-courses/publishing.service';
+import * as completeness from '../src/commerce-courses/completeness';
+import * as versionSnapshot from '../src/commerce-courses/version-snapshot';
 import { PrismaService } from '../src/prisma/prisma.service';
 import request from 'supertest';
 import {
@@ -25,6 +26,27 @@ describe('Commerce course workflow (e2e)', () => {
   const code = `E2E-WF-${Date.now()}`;
   /** C3：创建课程必须带 ACTIVE 分类；预置 Society 由迁移幂等补种。 */
   let categoryId: string;
+
+  /**
+   * N2 修复后 publish 的完成度判定改为锁内从快照计算
+   * （snapshotToCompletenessInput → computeCompleteness），不再调用
+   * completenessForDraft（旧 spy 已不可达）。本文件测发布/删除草稿的并发与
+   * 幂等语义，完成度不是变量：把锁内门禁的两个纯函数放行；门禁规则本身由
+   * publishing.service.publish.spec.ts（单测）与 category-version e2e
+   * （409 PUBLISH_BLOCKED 语义保留）锁定。
+   */
+  function stubPublishGate(): () => void {
+    const inputSpy = jest
+      .spyOn(versionSnapshot, 'snapshotToCompletenessInput')
+      .mockReturnValue({} as never);
+    const computeSpy = jest
+      .spyOn(completeness, 'computeCompleteness')
+      .mockReturnValue({ canPublish: true, publishBlockers: [] } as never);
+    return () => {
+      inputSpy.mockRestore();
+      computeSpy.mockRestore();
+    };
+  }
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -85,20 +107,10 @@ describe('Commerce course workflow (e2e)', () => {
       .send({ title: 'One' })
       .expect(201);
 
-    // 内容完成度不是这里要测的：放行，并让两个请求都过了完成度检查再一起往下走，
-    // 这样旧代码里两边一定都读到"还没有版本"，各自用 versionNo=1 去写。
-    const publishing = app.get(PublishingService);
-    let arrived = 0;
-    let release!: () => void;
-    const bothArrived = new Promise<void>((resolve) => (release = resolve));
-    const spy = jest
-      .spyOn(publishing, 'completenessForDraft')
-      .mockImplementation(async () => {
-        arrived += 1;
-        if (arrived === 2) release();
-        await bothArrived;
-        return { canPublish: true, publishBlockers: [] } as never;
-      });
+    // 内容完成度不是这里要测的：放行（见 stubPublishGate 注释）。N2 修复后
+    // 两个并发发布在 FOR UPDATE 锁上自然串行，后到者读到已发布 → NO_DRAFT，
+    // 不再需要旧代码里"两边都先过完成度检查"的屏障。
+    const restoreGate = stubPublishGate();
     try {
       const both = await Promise.all([
         agent.post(`/api/backoffice/courses/${id}/publish`).send({}),
@@ -137,7 +149,7 @@ describe('Commerce course workflow (e2e)', () => {
       expect(second.status).toBe(200);
       expect(second.body.data.versionNo).toBe(2);
     } finally {
-      spy.mockRestore();
+      restoreGate();
     }
   });
 
@@ -153,10 +165,8 @@ describe('Commerce course workflow (e2e)', () => {
       .expect(201);
     const lessonId = lesson.body.data.lessons[0].id;
 
-    const publishing = app.get(PublishingService);
-    const spy = jest
-      .spyOn(publishing, 'completenessForDraft')
-      .mockResolvedValue({ canPublish: true, publishBlockers: [] } as never);
+    // 完成度不是本用例的变量：放行（见 stubPublishGate 注释）。
+    const restoreGate = stubPublishGate();
     try {
       await agent
         .post(`/api/backoffice/courses/${id}/publish`)
@@ -196,7 +206,7 @@ describe('Commerce course workflow (e2e)', () => {
       // C9：发布冻结 liveBaseRevision = draftRevision。
       expect(afterPublish.draftRevision).toBe(afterPublish.liveBaseRevision);
     } finally {
-      spy.mockRestore();
+      restoreGate();
     }
   });
 

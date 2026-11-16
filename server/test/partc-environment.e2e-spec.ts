@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
 import type { App } from 'supertest/types';
@@ -18,10 +18,21 @@ import { signInAs } from './helpers/employee-session';
  *   live-status 不被能力门拦截；Sandbox 下 authoring 可用。
  * - 环境由服务端配置（VERSION_NUMBERING_MODE）判定，不信任客户端。
  *
+ * 缝 R16 / EXPORT-BYPASS（本文件追加）：
+ * - 生产模式启动告警一次（Logger.warn，进程内一次）；
+ * - 环境未配置（VERSION_NUMBERING_MODE 与 NODE_ENV=production 都缺）时导出
+ *   拒绝 ENVIRONMENT_NOT_CONFIGURED，不静默写 sourceEnv=sandbox；
+ * - 草稿导出默认拒绝 EXPORT_LIVE_VERSION_ONLY（PRD §16.2），
+ *   ALLOW_DRAFT_EXPORT=on 才放行（Sandbox 调试）。
+ *
  * 黑盒边界：只经 backoffice HTTP 观察；Prisma 仅用于取预置分类 id 与清理。
  */
 
 const PREFIX = `E2E-CAP-${Date.now()}`;
+
+// R16：生产模式告警是进程级一次的 Logger.warn；spy 必须在第一个生产 App
+// 编译（beforeAll）之前挂上，本进程内只应收到一次。
+const warnSpy = jest.spyOn(Logger, 'warn');
 
 interface ErrorBody {
   success: boolean;
@@ -36,10 +47,11 @@ describe('C10.7 environment capability matrix (e2e)', () => {
   const createdCodes: string[] = [];
 
   async function buildApp(env: {
-    numbering: 'sandbox' | 'production';
+    numbering: 'sandbox' | 'production' | null;
     enforcement: 'on' | 'off';
   }): Promise<INestApplication<App>> {
-    process.env.VERSION_NUMBERING_MODE = env.numbering;
+    if (env.numbering) process.env.VERSION_NUMBERING_MODE = env.numbering;
+    else delete process.env.VERSION_NUMBERING_MODE;
     process.env.ENV_CAPABILITY_ENFORCEMENT = env.enforcement;
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -302,6 +314,82 @@ describe('C10.7 environment capability matrix (e2e)', () => {
     } finally {
       delete process.env.PACKAGE_SOURCE_ENFORCEMENT;
       await enforced.close();
+    }
+  });
+
+  it('production mode announces itself once at startup (R16)', () => {
+    // beforeAll 第一个 App 即生产模式；告警进程内只发一次（后续测试又编译了
+    // 多个生产 App，不能多报）。
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('VERSION_NUMBERING_MODE=production'),
+      expect.anything(),
+    );
+  });
+
+  it('unconfigured environment: export is refused with an actionable error instead of silently writing sourceEnv=sandbox (R16)', async () => {
+    const unconfigured = await buildApp({
+      numbering: null,
+      enforcement: 'off',
+    });
+    try {
+      const agent = await signInAs(unconfigured, 'ADMIN');
+      const res = await agent
+        .post('/api/backoffice/courses/unknown-course/export')
+        .send({});
+      expect(res.status).toBe(500);
+      expect((res.body as ErrorBody).error.code).toBe(
+        'ENVIRONMENT_NOT_CONFIGURED',
+      );
+      expect((res.body as ErrorBody).error.message).toContain(
+        'VERSION_NUMBERING_MODE',
+      );
+    } finally {
+      await unconfigured.close();
+    }
+  });
+
+  it('draft export: refused by default, allowed with ALLOW_DRAFT_EXPORT=on (PRD §16.2)', async () => {
+    delete process.env.ALLOW_DRAFT_EXPORT;
+    const sandbox = await buildApp({
+      numbering: 'sandbox',
+      enforcement: 'off',
+    });
+    try {
+      const agent = await signInAs(sandbox, 'ADMIN');
+      const prismaService = sandbox.get(PrismaService);
+      const storage = sandbox.get(CourseStorageService);
+      const code = `${PREFIX}-EXPGATE`;
+      createdCodes.push(code);
+      await agent
+        .post('/api/backoffice/courses')
+        .send({ code, title: `${code} title`, categoryId })
+        .expect(201);
+      const course = await prismaService.commerceCourse.findFirstOrThrow({
+        where: { code },
+        select: { id: true },
+      });
+
+      const denied = await agent
+        .post(`/api/backoffice/courses/${course.id}/export`)
+        .send({ version: 'working' });
+      expect(denied.status).toBe(409);
+      expect((denied.body as ErrorBody).error.code).toBe(
+        'EXPORT_LIVE_VERSION_ONLY',
+      );
+
+      process.env.ALLOW_DRAFT_EXPORT = 'on';
+      const allowed = await agent
+        .post(`/api/backoffice/courses/${course.id}/export`)
+        .send({ version: 'working' });
+      expect(allowed.status).toBe(202);
+      const jobId = (allowed.body as { data: { jobId: string } }).data.jobId;
+      await prismaService.coursePackageJob
+        .delete({ where: { id: jobId } })
+        .catch(() => undefined);
+      await storage.clearStagingPrefix(jobId).catch(() => undefined);
+    } finally {
+      delete process.env.ALLOW_DRAFT_EXPORT;
+      await sandbox.close();
     }
   });
 });

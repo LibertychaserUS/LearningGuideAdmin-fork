@@ -181,18 +181,12 @@ export class PublishingService {
       });
     }
 
-    const completeness = await this.completenessForDraft(courseId);
-    if (!completeness.canPublish) {
-      throw new ConflictException({
-        code: 'PUBLISH_BLOCKED',
-        message: completeness.publishBlockers.join(' '),
-        blockers: completeness.publishBlockers,
-      });
-    }
-
     const source = this.resolveSource(course);
     // 锁住课程行后再取上一版本号、拍快照：两人同时点发布时第二个请求等第一个提交，
     // 然后看到草稿已发布返回 NO_DRAFT，不会撞 (courseId, versionNo) 唯一键变成 500。
+    // N2：完成度判定也必须在锁内、且与快照同源——并发草稿写入（authoring 事务内
+    // UPDATE CommerceCourse draftRevision+1，C9）在 FOR UPDATE 上排队，无法在
+    // 检查与冻结之间滑入不完整内容。
     const version = await this.prisma.$transaction(
       async (tx) => {
         const [locked] = await tx.$queryRaw<
@@ -200,9 +194,10 @@ export class PublishingService {
             draftRevision: number;
             liveBaseRevision: number;
             liveVersionId: string | null;
+            trialEnabled: boolean;
           }[]
         >`
-          SELECT "draftRevision", "liveBaseRevision", "liveVersionId"
+          SELECT "draftRevision", "liveBaseRevision", "liveVersionId", "trialEnabled"
           FROM "CommerceCourse" WHERE id = ${courseId} FOR UPDATE`;
         if (!locked || locked.draftRevision === locked.liveBaseRevision) {
           throw new ConflictException({
@@ -211,6 +206,32 @@ export class PublishingService {
           });
         }
         const snapshot = await captureVersionSnapshot(tx, courseId);
+        // 门禁判定输入 = 即将冻结的快照本身（不是事务外的另一份工作区读）。
+        // trial 步骤不参与 publishBlockers（completeness.ts：canPublish 只看
+        // CI 完成 + ≥1 个 lesson 的 Study 完成），锁内用 trialSetting 原始行
+        // 替代 TrialService 的派生 status，不改变门禁判定。
+        const trialRows = await tx.trialSetting.findMany({
+          where: { courseId },
+          select: {
+            lessonId: true,
+            status: true,
+            videoCutoffSeconds: true,
+            textCutoffLearningPointId: true,
+          },
+        });
+        const completeness = computeCompleteness(
+          snapshotToCompletenessInput(snapshot, {
+            trialEnabled: locked.trialEnabled,
+            trialRows,
+          }),
+        );
+        if (!completeness.canPublish) {
+          throw new ConflictException({
+            code: 'PUBLISH_BLOCKED',
+            message: completeness.publishBlockers.join(' '),
+            blockers: completeness.publishBlockers,
+          });
+        }
         // 仅供排查的诊断指纹；不参与 No draft/版本身份（C9/C0 红线）。
         const contentHash = await snapshotContentHash(tx, snapshot);
         const last = await tx.courseVersion.findFirst({
