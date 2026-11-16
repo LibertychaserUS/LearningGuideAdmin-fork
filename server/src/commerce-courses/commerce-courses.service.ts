@@ -322,10 +322,11 @@ export class CommerceCoursesService {
     actorEmployeeId: string | null,
   ) {
     const language = body.defaultContentLanguage || body.language || 'en-GB';
+    // 强制双语（PRD 11.5）：新建课程默认中英双开，避免一出生就被发布门禁拦下。
     const learningLanguages =
       body.learningLanguages && body.learningLanguages.length > 0
         ? body.learningLanguages
-        : [language];
+        : ['en-GB', 'zh-CN'];
     const code = (body.code?.trim() || this.slugify(body.title)).toUpperCase();
     const slug = body.slug?.trim() || this.slugify(body.title);
     const learningMode = this.normaliseMode(body.learningMode);

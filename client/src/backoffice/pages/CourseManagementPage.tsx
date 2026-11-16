@@ -95,7 +95,7 @@ function CourseManagementInner({ locale }: { locale: ReturnType<typeof useLocale
   const [catalogCategories, setCatalogCategories] = useState<CourseCategory[]>([])
   const [createCategoryId, setCreateCategoryId] = useState('')
   const [createMode, setCreateMode] = useState('VIDEO_AND_TEXT')
-  const [createLanguages, setCreateLanguages] = useState<string[]>([locale.startsWith('zh') ? 'zh-CN' : 'en-GB'])
+  const [createLanguages, setCreateLanguages] = useState<string[]>(['en-GB', 'zh-CN'])
   const [exportingId, setExportingId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const rawFileRef = useRef<HTMLInputElement | null>(null)

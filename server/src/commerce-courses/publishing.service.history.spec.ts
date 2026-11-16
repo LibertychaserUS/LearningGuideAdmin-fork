@@ -289,11 +289,11 @@ describe('History — Create course (PRD §21)', () => {
     expect(recordHistory).toHaveBeenCalledWith(
       'course-1',
       HISTORY_ACTIONS.CREATE_COURSE,
-      // PRD §21 "C001 · Video and Text · English"
+      // PRD §21 "C001 · Video and Text · English"；强制双语（PRD 11.5）后默认中英双开。
       expect.objectContaining({
         code: 'C001',
         learningMode: 'VIDEO_AND_TEXT',
-        learningLanguages: ['en-GB'],
+        learningLanguages: ['en-GB', 'zh-CN'],
       }),
       'emp-1',
     );
