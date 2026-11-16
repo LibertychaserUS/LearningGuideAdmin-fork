@@ -65,9 +65,21 @@ export const HISTORY_ACTIONS = {
   EXPORT_PACKAGE: 'EXPORT_PACKAGE',
   IMPORT_PACKAGE: 'IMPORT_PACKAGE',
   CHANGE_STATUS: 'CHANGE_STATUS',
+  ADD_LEARNING_LANGUAGE: 'ADD_LEARNING_LANGUAGE',
   OPERATIONS_PUBLISH: 'OPERATIONS_PUBLISH',
   CREATE_COURSE: 'CREATE_COURSE',
 } as const;
+
+/**
+ * PRD §21 "Import package — Draft replaced · C001_4.2.zip"：
+ * 原值 = 被替换的草稿，新值 = 导入的包标识。
+ */
+export function importedDraftHistoryDetail(packageId: string): {
+  from: string;
+  to: string;
+} {
+  return { from: 'Draft', to: packageId };
+}
 
 @Injectable()
 export class PublishingService {
@@ -206,6 +218,7 @@ export class PublishingService {
           orderBy: { versionNo: 'desc' },
           select: {
             versionNo: true,
+            versionLabel: true,
             versionSeries: true,
             versionMinor: true,
             exportedAt: true,
@@ -252,6 +265,9 @@ export class PublishingService {
             actorEmployeeId,
             action: HISTORY_ACTIONS.PUBLISH,
             detail: {
+              // PRD §21 "Version 3 → Version 4 · learners notified"
+              from: last?.versionLabel ?? null,
+              to: numbering.label,
               versionLabel: numbering.label,
               sourceEnvironment: source.environment,
               sourceVersionLabel: source.label,
@@ -360,7 +376,12 @@ export class PublishingService {
             versionNo: live.versionNo,
             actorEmployeeId,
             action: HISTORY_ACTIONS.DELETE_DRAFT,
-            detail: { keptVersion: live.versionLabel },
+            detail: {
+              // PRD §21 "Draft → Version 3"
+              from: 'Draft',
+              to: live.versionLabel,
+              keptVersion: live.versionLabel,
+            },
           },
         });
         return { deleted: true, keptVersion: live.versionLabel };
@@ -429,7 +450,12 @@ export class PublishingService {
             versionNo: version.versionNo,
             actorEmployeeId,
             action: HISTORY_ACTIONS.RESTORE,
-            detail: { restoredFrom: version.versionLabel },
+            detail: {
+              // PRD §21 "Version 1 → draft"
+              from: version.versionLabel,
+              to: 'draft',
+              restoredFrom: version.versionLabel,
+            },
           },
         });
         return !isLiveVersion;
@@ -468,6 +494,11 @@ export class PublishingService {
       });
     }
     const from = course.liveStatus;
+    // PRD §21：状态变更记录带版本号（线上版本）。
+    const live = await this.prisma.courseVersion.findUnique({
+      where: { id: course.liveVersionId },
+      select: { versionNo: true },
+    });
     await this.prisma.$transaction([
       this.prisma.commerceCourse.update({
         where: { id: courseId },
@@ -476,6 +507,7 @@ export class PublishingService {
       this.prisma.courseAuthoringActivity.create({
         data: {
           courseId,
+          versionNo: live?.versionNo ?? null,
           actorEmployeeId,
           action: HISTORY_ACTIONS.CHANGE_STATUS,
           detail: { from, to: body.status, reason },
@@ -513,8 +545,32 @@ export class PublishingService {
         createdBy: true,
       },
     });
+    // PRD §15.5：Published 列显示操作人。createdBy 是员工 ID，这里关联员工表取显示名：
+    // 有姓名用姓名（当前 Employee 只有登录邮箱），否则用登录邮箱 @ 前的前缀。
+    const creatorIds = [
+      ...new Set(
+        versions
+          .map((version) => version.createdBy)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const employees = creatorIds.length
+      ? await this.prisma.employee.findMany({
+          where: { employeeId: { in: creatorIds } },
+          select: { employeeId: true, loginEmail: true },
+        })
+      : [];
+    const nameById = new Map(
+      employees.map((employee) => [
+        employee.employeeId,
+        employee.loginEmail.split('@')[0] ?? employee.loginEmail,
+      ]),
+    );
     return versions.map((version) => ({
       ...version,
+      createdByName: version.createdBy
+        ? (nameById.get(version.createdBy) ?? null)
+        : null,
       isLive: version.id === course.liveVersionId,
     }));
   }
@@ -618,7 +674,21 @@ export class PublishingService {
     const version = await this.prisma.courseVersion.update({
       where: { id: versionId },
       data: { exportedAt: new Date(), exportedBy: actorEmployeeId },
-      select: { id: true, courseId: true, versionNo: true, versionLabel: true },
+      select: {
+        id: true,
+        courseId: true,
+        versionNo: true,
+        versionLabel: true,
+        versionSeries: true,
+        versionMinor: true,
+      },
+    });
+    // PRD §21 "Export package — Version 3.4 · next publish starts 4.1"：
+    // 导出后下一次发布进入新系列，这里按真实编号规则推导目标版本。
+    const next = nextVersionLabel(this.config.versionNumberingMode, {
+      versionSeries: version.versionSeries,
+      versionMinor: version.versionMinor,
+      exportedAt: new Date(),
     });
     await this.prisma.courseAuthoringActivity.create({
       data: {
@@ -626,7 +696,11 @@ export class PublishingService {
         versionNo: version.versionNo,
         actorEmployeeId,
         action: HISTORY_ACTIONS.EXPORT_PACKAGE,
-        detail: { versionLabel: version.versionLabel },
+        detail: {
+          versionLabel: version.versionLabel,
+          versionNo: version.versionNo,
+          nextVersionLabel: next.label,
+        },
       },
     });
     return version;

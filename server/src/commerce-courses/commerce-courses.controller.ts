@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -291,8 +292,9 @@ export class CommerceCoursesController {
       level?: string | null;
       categoryId?: string | null;
     },
+    @Req() request: BackofficeRequest,
   ) {
-    return this.courses.updateCourse(id, body);
+    return this.courses.updateCourse(id, body, actor(request));
   }
 
   @Put(':id/localizations/:language')
@@ -630,15 +632,43 @@ export class CommerceCoursesController {
     return this.authoring.saveApplicationTest(id, lessonId, body);
   }
 
-  @Post(':id/understanding/import')
-  @UseInterceptors(DraftRevisionInterceptor)
+  /** PRD 13.3 第一步：解析校验，不写库。 */
+  @Post(':id/understanding/import/preview')
   @UseInterceptors(FileInterceptor('file'))
-  importUnderstanding(
+  previewUnderstandingImport(
     @Param('id') id: string,
     @Body() body: { language?: string; lessonId?: string },
     @UploadedFile() file: { originalname: string; buffer: Buffer } | undefined,
   ) {
-    return this.authoring.importUnderstanding(
+    return this.authoring.previewUnderstandingImport(
+      id,
+      body.language || 'en-GB',
+      file,
+      body.lessonId,
+    );
+  }
+
+  /** PRD 13.3 第二步：用户确认后只写入没有错误的行（仍走原路径 + confirm 标记）。 */
+  @Post(':id/understanding/import')
+  @UseInterceptors(DraftRevisionInterceptor)
+  @UseInterceptors(FileInterceptor('file'))
+  confirmUnderstandingImport(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      language?: string;
+      lessonId?: string;
+      confirm?: string | boolean;
+    },
+    @UploadedFile() file: { originalname: string; buffer: Buffer } | undefined,
+  ) {
+    if (body.confirm !== true && body.confirm !== 'true') {
+      throw new BadRequestException({
+        code: 'CONFIRM_REQUIRED',
+        message: 'Preview the file and confirm before importing.',
+      });
+    }
+    return this.authoring.confirmUnderstandingImport(
       id,
       body.language || 'en-GB',
       file,

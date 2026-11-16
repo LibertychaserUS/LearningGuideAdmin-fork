@@ -328,6 +328,7 @@ export class CommerceCoursesService {
         : [language];
     const code = (body.code?.trim() || this.slugify(body.title)).toUpperCase();
     const slug = body.slug?.trim() || this.slugify(body.title);
+    const learningMode = this.normaliseMode(body.learningMode);
     // C3：创建必须带合法分类（缺失/不存在/已归档/层级>2 各自错误码）。
     await this.assertCategoryBinding(body.categoryId);
     try {
@@ -335,7 +336,7 @@ export class CommerceCoursesService {
         data: {
           code,
           slug,
-          learningMode: this.normaliseMode(body.learningMode),
+          learningMode,
           defaultContentLanguage: language,
           learningLanguages: learningLanguages,
           categoryId: body.categoryId ?? null,
@@ -360,7 +361,9 @@ export class CommerceCoursesService {
       await this.publishing.recordHistory(
         course.id,
         HISTORY_ACTIONS.CREATE_COURSE,
-        { code },
+        // PRD §21 "C001 · Video and Text · English"：空白新建没有来源包，
+        // 因此 sourcePackage 不写入；从包新建由 PackageImporter 补上。
+        { code, learningMode, learningLanguages },
         actorEmployeeId,
       );
       return this.detail(course.id);
@@ -390,6 +393,7 @@ export class CommerceCoursesService {
       level?: string | null;
       categoryId?: string | null;
     },
+    actorEmployeeId: string | null = null,
   ) {
     const current = await this.prisma.commerceCourse.findUnique({
       where: { id },
@@ -477,6 +481,21 @@ export class CommerceCoursesService {
           draftSourceVersionLabel: null,
         },
       });
+      // PRD §21 "Add learning language — English → English, 中文"：
+      // 仅在学习语言实际新增时写历史（原列表 → 新列表）。
+      const addedLanguages = requestedLanguages
+        ? requestedLanguages.filter(
+            (language) => !existingLanguages.includes(language),
+          )
+        : [];
+      if (addedLanguages.length > 0) {
+        await this.publishing.recordHistory(
+          id,
+          HISTORY_ACTIONS.ADD_LEARNING_LANGUAGE,
+          { from: existingLanguages, to: requestedLanguages },
+          actorEmployeeId,
+        );
+      }
       return this.detail(id);
     } catch (error) {
       if (

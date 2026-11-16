@@ -14,7 +14,10 @@ import {
   type VersionSnapshot,
 } from './version-snapshot';
 import { findCategoryByPath, CategoryResolutionError } from './category-path';
-import { HISTORY_ACTIONS } from './publishing.service';
+import {
+  HISTORY_ACTIONS,
+  importedDraftHistoryDetail,
+} from './publishing.service';
 import {
   buildPartcVersionSnapshot,
   compilePartcPackageFromIr,
@@ -350,6 +353,7 @@ export class PackageImporter {
                 packageId: manifest.packageId,
                 sourceEnvironment: manifest.source.environment ?? null,
                 sourceVersionLabel: manifest.source.sourceVersion ?? null,
+                ...importedDraftHistoryDetail(importedPackageFileName(manifest)),
               },
             },
           });
@@ -453,10 +457,14 @@ export class PackageImporter {
             data: {
               courseId,
               actorEmployeeId: options.actorEmployeeId,
-              action: 'IMPORT',
+              action: HISTORY_ACTIONS.CREATE_COURSE,
               detail: {
+                // PRD §21 "C001 · Video and Text · English / Created from package C001_1.3.zip"
+                code: courseKey,
+                learningMode: snapshot.course.learningMode,
+                learningLanguages: snapshot.course.learningLanguages,
+                sourcePackage: importedPackageFileName(manifest),
                 packageFormat: 2,
-                courseKey,
                 provenance: (manifest.provenance ??
                   null) as unknown as Prisma.InputJsonValue,
               },
@@ -538,6 +546,7 @@ export class PackageImporter {
                 courseKey: manifest.course.courseKey,
                 provenance: (manifest.provenance ??
                   null) as unknown as Prisma.InputJsonValue,
+                ...importedDraftHistoryDetail(importedPackageFileName(manifest)),
               },
             },
           });
@@ -1234,14 +1243,17 @@ export class PackageImporter {
       });
     }
 
-    // 审计
+    // 审计 / History：从包新建课程记为 Create course（PRD §21）。
     await tx.courseAuthoringActivity.create({
       data: {
         courseId,
-        action: 'IMPORT',
+        action: HISTORY_ACTIONS.CREATE_COURSE,
         detail: {
-          manifestFormat: manifest.formatVersion,
-          packageId: manifest.packageId,
+          // PRD §21 "C001 · Video and Text · English / Created from package C001_1.3.zip"
+          code: ids.targetCode,
+          learningMode: course.learningMode,
+          learningLanguages: course.learningLanguages,
+          sourcePackage: importedPackageFileName(manifest),
         },
       },
     });
@@ -1283,6 +1295,31 @@ interface PartcMediaTransfer {
   readonly mediaMetas: ImportedMediaMeta[];
   readonly storageKeys: string[];
   readonly mediaAssetIds: string[];
+}
+
+/**
+ * PRD §21 "Import package — Draft replaced · C001_4.2.zip"：
+ * 两处 Import 历史统一使用同一种「文件名」标识（与导出包 fileLabel 规则一致），
+ * 不再一处用 manifest.packageId、一处用 manifest.course.courseKey。
+ */
+function importedPackageFileName(
+  manifest: PackageManifest | PackageManifestV2,
+): string {
+  const asZip = (value: string) =>
+    /\.zip$/i.test(value) ? value : `${value}.zip`;
+  if (isPartCV2Manifest(manifest)) {
+    const sourceVersion = manifest.provenance?.sourceVersionLabel?.trim();
+    if (sourceVersion) {
+      return `${manifest.course.courseKey}_${sourceVersion}.zip`;
+    }
+    const fallback = manifest.packageId?.trim();
+    return fallback ? asZip(fallback) : `${manifest.course.courseKey}.zip`;
+  }
+  const sourceVersion = manifest.source?.sourceVersion?.trim();
+  if (sourceVersion) {
+    return `${manifest.course.code}_${sourceVersion}.zip`;
+  }
+  return asZip(manifest.packageId || manifest.course.code);
 }
 
 /** Part C 包的 URL slug：优先导出方 annotations.slug，否则由 courseKey 机械派生。 */

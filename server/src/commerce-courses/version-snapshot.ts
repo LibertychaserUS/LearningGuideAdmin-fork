@@ -3,6 +3,7 @@ import { UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CompletenessInput,
+  ContentExhibit,
   ContentLesson,
   ContentLocalization,
 } from './completeness';
@@ -634,6 +635,19 @@ export function snapshotToCompletenessInput(
     learningPoints: lesson.learningPoints.map((lp) => ({
       language: lp.language,
       source: lp.source,
+    })),
+    exhibits: lesson.exhibits.map((exhibit) => ({
+      code: exhibit.code,
+      type: exhibit.type,
+      mediaAssetId: exhibit.mediaAssetId,
+      thumbnailAssetId: exhibit.thumbnailAssetId,
+      localized: exhibit.localized as ContentExhibit['localized'],
+    })),
+    readings: lesson.readings.map((reading) => ({
+      type: reading.type,
+      title: reading.title,
+      author: reading.author,
+      whyRecommended: reading.whyRecommended,
     })),
     questions: lesson.questions,
     applicationTest: lesson.applicationTest,

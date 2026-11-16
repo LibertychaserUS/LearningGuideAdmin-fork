@@ -812,13 +812,101 @@ export class CourseAuthoringService {
     return { added, errors };
   }
 
-  async importUnderstanding(
+  /**
+   * PRD 13.3 第一步：解析并校验上传文件，返回读取行数、各 Lesson 将新增的题数、
+   * 错误行明细，但不写库。运营确认前可以随时放弃。
+   */
+  async previewUnderstandingImport(
     courseId: string,
     language: string,
     file: { originalname: string; buffer: Buffer } | undefined,
     singleLessonId?: string,
   ) {
     void language;
+    const parsed = await this.parseUnderstandingRows(
+      courseId,
+      file,
+      singleLessonId,
+    );
+    return {
+      rowsRead: parsed.rowsRead,
+      added: parsed.entries.length,
+      byLesson: parsed.byLesson,
+      errors: parsed.errors,
+    };
+  }
+
+  /**
+   * PRD 13.3 第二步：确认后只写入校验通过的行。解析在事务之外完成，
+   * 确认阶段本身是一个事务，不会留下半批写入。
+   */
+  async confirmUnderstandingImport(
+    courseId: string,
+    language: string,
+    file: { originalname: string; buffer: Buffer } | undefined,
+    singleLessonId?: string,
+  ) {
+    void language;
+    const parsed = await this.parseUnderstandingRows(
+      courseId,
+      file,
+      singleLessonId,
+    );
+    if (parsed.entries.length > 0) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const entry of parsed.entries) {
+          if (entry.type === 'Application') {
+            await tx.applicationTest.create({
+              data: {
+                lessonId: entry.lessonId,
+                scenario: entry.question,
+                referenceAnswer: entry.referenceAnswer,
+                enabled: true,
+              },
+            });
+          } else {
+            await tx.knowledgeQuestion.create({
+              data: {
+                lessonId: entry.lessonId,
+                code: entry.code,
+                question: entry.question,
+                referenceAnswer: entry.referenceAnswer,
+                sortOrder: entry.sortOrder,
+              },
+            });
+          }
+        }
+      });
+      await this.touchCourse(courseId);
+    }
+    return {
+      added: parsed.entries.length,
+      byLesson: parsed.byLesson,
+      errors: parsed.errors,
+    };
+  }
+
+  /**
+   * 纯解析/校验：只读数据库（Lesson、已有题目数），不产生任何写入。
+   * 预览与确认共用它，保证两阶段看到的是同一套规则与错误行。
+   */
+  private async parseUnderstandingRows(
+    courseId: string,
+    file: { originalname: string; buffer: Buffer } | undefined,
+    singleLessonId?: string,
+  ): Promise<{
+    rowsRead: number;
+    byLesson: Record<string, number>;
+    errors: Array<{ row: number; message: string }>;
+    entries: Array<{
+      type: 'Knowledge' | 'Application';
+      lessonId: string;
+      question: string;
+      referenceAnswer: string;
+      code: string;
+      sortOrder: number;
+    }>;
+  }> {
     const rows = this.readSheet(file);
     const expected = [
       'Course ID',
@@ -835,9 +923,10 @@ export class CourseAuthoringService {
     for (const header of expected) {
       if (!normalized.has(this.normalizeHeader(header))) {
         return {
-          added: 0,
+          rowsRead: 0,
           byLesson: {},
           errors: [{ row: 1, message: 'Use the template to import questions' }],
+          entries: [],
         };
       }
     }
@@ -852,7 +941,16 @@ export class CourseAuthoringService {
     const errors: Array<{ row: number; message: string }> = [];
     const byLesson: Record<string, number> = {};
     const applicationSeen = new Set<string>();
-    let added = 0;
+    // 解析阶段不写库，同一 Lesson 的顺序要自己累计，避免每题都拿到同一个 code。
+    const planned: Record<string, number> = {};
+    const entries: Array<{
+      type: 'Knowledge' | 'Application';
+      lessonId: string;
+      question: string;
+      referenceAnswer: string;
+      code: string;
+      sortOrder: number;
+    }> = [];
 
     for (const [index, row] of rows.entries()) {
       const rowNo = index + 2;
@@ -897,33 +995,34 @@ export class CourseAuthoringService {
           continue;
         }
         applicationSeen.add(lessonCode);
-        await this.prisma.applicationTest.create({
-          data: {
-            lessonId: lesson.id,
-            scenario: question,
-            referenceAnswer,
-            enabled: true,
-          },
+        entries.push({
+          type,
+          lessonId: lesson.id,
+          question,
+          referenceAnswer,
+          code: '',
+          sortOrder: 0,
         });
       } else {
         const count = await this.prisma.knowledgeQuestion.count({
           where: { lessonId: lesson.id },
         });
-        await this.prisma.knowledgeQuestion.create({
-          data: {
-            lessonId: lesson.id,
-            code: `K-${String(count + 1).padStart(4, '0')}`,
-            question,
-            referenceAnswer,
-            sortOrder: count,
-          },
+        const offset = planned[lesson.id] ?? 0;
+        const sortOrder = count + offset;
+        planned[lesson.id] = offset + 1;
+        entries.push({
+          type,
+          lessonId: lesson.id,
+          question,
+          referenceAnswer,
+          code: `K-${String(sortOrder + 1).padStart(4, '0')}`,
+          sortOrder,
         });
       }
       byLesson[lessonCode] = (byLesson[lessonCode] ?? 0) + 1;
-      added++;
     }
-    if (added > 0) await this.touchCourse(courseId);
-    return { added, byLesson, errors };
+
+    return { rowsRead: rows.length, byLesson, errors, entries };
   }
 
   async downloadUnderstandingTemplate(courseId: string): Promise<string> {

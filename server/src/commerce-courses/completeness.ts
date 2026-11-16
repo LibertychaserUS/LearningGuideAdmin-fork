@@ -6,6 +6,8 @@
  * 工作区（草稿）与版本快照都归一化成这里的输入形状，避免两套判断。
  */
 
+import { parseTextLearningPoints } from './course-authoring.service';
+
 export interface ContentLessonLocalization {
   language: string;
   title?: string | null;
@@ -16,6 +18,34 @@ export interface ContentLessonLocalization {
   textHtml?: string | null;
 }
 
+export interface ContentExhibitLocalization {
+  title?: string | null;
+  description?: string | null;
+}
+
+/** 展品（PRD 12.4 / 20 #16）。localized 以学习语言为 key。 */
+export interface ContentExhibit {
+  id?: string;
+  code?: string | null;
+  type?: string | null;
+  mediaAssetId?: string | null;
+  media?: { id: string } | null;
+  thumbnailAssetId?: string | null;
+  thumbnail?: { id: string } | null;
+  localized?: Record<
+    string,
+    ContentExhibitLocalization | null | undefined
+  > | null;
+}
+
+/** 延伸阅读（PRD 12.6 / 20 #19）。 */
+export interface ContentReading {
+  type?: string | null;
+  title?: string | null;
+  author?: string | null;
+  whyRecommended?: string | null;
+}
+
 export interface ContentLesson {
   id: string;
   code: string;
@@ -23,6 +53,8 @@ export interface ContentLesson {
   archivedAt?: Date | string | null;
   localizations: ContentLessonLocalization[];
   learningPoints?: Array<{ language: string; source: string }>;
+  exhibits?: ContentExhibit[];
+  readings?: ContentReading[];
   questions?: Array<{
     question?: string | null;
     referenceAnswer?: string | null;
@@ -88,6 +120,9 @@ export interface CourseCompleteness {
 const MODE_HAS_VIDEO = (mode: string) => mode !== 'TEXT_ONLY';
 const MODE_HAS_TEXT = (mode: string) => mode !== 'VIDEO_ONLY';
 
+/** Course Information 与 Lesson 标题/描述始终中英文必填（PRD 11.5 / 20）。 */
+const BILINGUAL_LANGUAGES = ['en-GB', 'zh-CN'] as const;
+
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -110,7 +145,8 @@ export function computeCompleteness(
   if (!input.categoryId) ciMissing.push('Category is required.');
   if (input.learningLanguages.length === 0)
     ciMissing.push('At least one learning language is required.');
-  for (const language of input.learningLanguages) {
+  // Course Information 是元数据，始终中英文并列必填（PRD 11.5 / 20 #1 #6）。
+  for (const language of BILINGUAL_LANGUAGES) {
     const loc = input.localizations.find((row) => row.language === language);
     if (!loc) {
       ciMissing.push(`Course information is missing for ${language}.`);
@@ -154,14 +190,6 @@ export function computeCompleteness(
         );
         continue;
       }
-      if (!text(loc.title))
-        studyMissing.push(
-          `Lesson ${lesson.code}: title is required (${language}).`,
-        );
-      if (!text(loc.description))
-        studyMissing.push(
-          `Lesson ${lesson.code}: description is required (${language}).`,
-        );
       if (MODE_HAS_VIDEO(input.learningMode)) {
         if (!videoId(loc))
           studyMissing.push(
@@ -192,6 +220,95 @@ export function computeCompleteness(
             `Lesson ${lesson.code}: add at least 1 text learning point (${language}).`,
           );
         }
+        // H1 即 LP；至少 1 个 LP，且每个标题下正文非空（PRD 12.5.2 / 20 #14 #15）。
+        const parsed = loc.textHtml
+          ? parseTextLearningPoints(loc.textHtml)
+          : [];
+        // 解析器会过滤空标题；完成度侧按原文补判：
+        // 存在 H1 但标题文字为空 → Title can't be empty（PRD §20 #15）。
+        const h1Count = loc.textHtml
+          ? [...loc.textHtml.matchAll(/<h1\b[^>]*>[\s\S]*?<\/h1>/gi)].length
+          : 0;
+        if (h1Count > parsed.length) {
+          studyMissing.push(
+            `Lesson ${lesson.code}: Title can't be empty (${language}).`,
+          );
+        }
+        if (parsed.length === 0) {
+          studyMissing.push(
+            `Lesson ${lesson.code}: No learning points found. Set each learning point title as Heading 1 (H1) (${language}).`,
+          );
+        }
+        for (const point of parsed) {
+          if (!point.hasBody) {
+            studyMissing.push(
+              `Lesson ${lesson.code}: No text under this heading (${language}): ${point.heading}.`,
+            );
+          }
+        }
+      }
+    }
+
+    // Lesson 标题/描述始终中英文并列必填（PRD 11.5 / 20 #7）；
+    // 视频、文本、LP、展品标题与描述等其余内容仍按学习语言校验。
+    for (const language of BILINGUAL_LANGUAGES) {
+      const loc = lesson.localizations.find((row) => row.language === language);
+      if (!loc) {
+        studyMissing.push(
+          `Lesson ${lesson.code}: title is required (${language}).`,
+        );
+        studyMissing.push(
+          `Lesson ${lesson.code}: description is required (${language}).`,
+        );
+        continue;
+      }
+      if (!text(loc.title))
+        studyMissing.push(
+          `Lesson ${lesson.code}: title is required (${language}).`,
+        );
+      if (!text(loc.description))
+        studyMissing.push(
+          `Lesson ${lesson.code}: description is required (${language}).`,
+        );
+    }
+
+    // 展品：类型、文件、缩略图齐全，且每种学习语言的标题与描述非空。
+    // 批量上传留下的 localized 为空 / 无缩略图的行自然命中未完成（PRD 12.4 / 20 #16）。
+    for (const [index, exhibit] of (lesson.exhibits ?? []).entries()) {
+      const label = `Lesson ${lesson.code}: exhibit ${exhibit.code ?? index + 1}`;
+      if (!text(exhibit.type))
+        studyMissing.push(`${label}: media type is required.`);
+      if (!(exhibit.mediaAssetId ?? exhibit.media?.id))
+        studyMissing.push(`${label}: file is required.`);
+      if (!(exhibit.thumbnailAssetId ?? exhibit.thumbnail?.id))
+        studyMissing.push(`${label}: thumbnail is required.`);
+      for (const language of input.learningLanguages) {
+        const loc = exhibit.localized?.[language];
+        if (!loc || !text(loc.title))
+          studyMissing.push(`${label}: title is required (${language}).`);
+        if (!loc || !text(loc.description))
+          studyMissing.push(`${label}: description is required (${language}).`);
+      }
+    }
+
+    // Recommended reading：列表为空，或某行缺 Type / Title / Author / Why we recommend it
+    // → Study & Exploration Incomplete（PRD 12.6 / 20 #19）。
+    const readings = lesson.readings ?? [];
+    if (readings.length === 0) {
+      studyMissing.push(
+        `Lesson ${lesson.code}: Recommended reading list is empty.`,
+      );
+    } else {
+      for (const [index, reading] of readings.entries()) {
+        const label = `Lesson ${lesson.code}: recommended reading ${index + 1}`;
+        if (!text(reading.type))
+          studyMissing.push(`${label}: type is required.`);
+        if (!text(reading.title))
+          studyMissing.push(`${label}: title is required.`);
+        if (!text(reading.author))
+          studyMissing.push(`${label}: author is required.`);
+        if (!text(reading.whyRecommended))
+          studyMissing.push(`${label}: why we recommend it is required.`);
       }
     }
 
