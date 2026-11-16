@@ -132,7 +132,7 @@ async function main() {
       headers,
       ...(method === 'GET' || method === 'HEAD'
         ? {}
-        : { body: body ?? Buffer.alloc(0) }),
+        : { body: new Uint8Array(body ?? Buffer.alloc(0)) }),
     });
   }
 

@@ -200,7 +200,10 @@ describe('Course category version, restore and draft state (e2e)', () => {
       })
       .expect(201);
     const id = created.body.data.id;
-    await saveCourseLocalization(id, `${code} title`);
+    await saveCourseLocalization(id, `${code} title`, 'en-GB');
+    // 完成度规则（PRD 11.5）：Course Information 与 Lesson 标题/描述始终中英文必填，
+    // 与学习语言无关。夹具必须双语，否则发布被 409 拦下。
+    await saveCourseLocalization(id, `${code} 标题`, 'zh-CN');
     const withLesson: SuccessResponse<CourseDetail> = await agent
       .post(`/api/backoffice/courses/${id}/lessons`)
       .send({ title: 'Lesson 1' })
@@ -214,12 +217,39 @@ describe('Course category version, restore and draft state (e2e)', () => {
         textHtml: '<h1>Part one</h1><p>Body text</p>',
       })
       .expect(200);
+    await agent
+      .put(`/api/backoffice/courses/${id}/lessons/${lessonId}`)
+      .send({
+        language: 'zh-CN',
+        title: '第一课',
+        description: '课时描述',
+      })
+      .expect(200);
+    // Recommended reading 列表为空 → Study & Exploration Incomplete（PRD 12.6 / 20 #19）。
+    await agent
+      .put(`/api/backoffice/courses/${id}/lessons/${lessonId}/readings`)
+      .send({
+        language: 'en-GB',
+        readings: [
+          {
+            type: 'Book',
+            title: 'A reading',
+            author: 'An author',
+            whyRecommended: 'Why we recommend it',
+          },
+        ],
+      })
+      .expect(200);
     return { id, code, lessonId };
   }
 
-  async function saveCourseLocalization(id: string, title: string) {
+  async function saveCourseLocalization(
+    id: string,
+    title: string,
+    language = 'en-GB',
+  ) {
     await agent
-      .put(`/api/backoffice/courses/${id}/localizations/en-GB`)
+      .put(`/api/backoffice/courses/${id}/localizations/${language}`)
       .send({
         title,
         shortDescription: 'Short description',
@@ -678,6 +708,34 @@ describe('Course category version, restore and draft state (e2e)', () => {
     // 导入整包 = 覆盖草稿（显式的"有草稿"状态）
     expect(await hasDraftInList(course.code)).toBe(true);
     expect((await getDetail(course.id)).hasDraft).toBe(true);
+
+    // 新完成度规则（PRD 11.5 / 12.6）：导入替换草稿后仍需双语与推荐阅读才能发布。
+    await saveCourseLocalization(course.id, `${course.code} 标题`, 'zh-CN');
+    const importedLessonId = (await getDetail(course.id)).lessons[0].id;
+    await agent
+      .put(`/api/backoffice/courses/${course.id}/lessons/${importedLessonId}`)
+      .send({
+        language: 'zh-CN',
+        title: '第一课',
+        description: '课时描述',
+      })
+      .expect(200);
+    await agent
+      .put(
+        `/api/backoffice/courses/${course.id}/lessons/${importedLessonId}/readings`,
+      )
+      .send({
+        language: 'en-GB',
+        readings: [
+          {
+            type: 'Book',
+            title: 'A reading',
+            author: 'An author',
+            whyRecommended: 'Why we recommend it',
+          },
+        ],
+      })
+      .expect(200);
 
     await publish(course.id);
     expect(await hasDraftInList(course.code)).toBe(false);

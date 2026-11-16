@@ -88,7 +88,7 @@ function buildWorkbook(
 ): Buffer {
   const workbook = XLSX.utils.book_new();
   const sheets = [
-    sheet('Meta', [[2, courseKey, 'en-GB', 'video']]),
+    sheet('Meta', [[2, courseKey, 'en-GB,zh-CN', 'video']]),
     sheet('Media', [
       [
         assetKeyOf(courseKey, 'cover'),
@@ -115,6 +115,22 @@ function buildWorkbook(
         null,
       ],
       [
+        assetKeyOf(courseKey, 'video-zh'),
+        'video',
+        lessonCode,
+        'zh-CN',
+        `media/${lessonCode}.zh-CN.mp4`,
+        null,
+      ],
+      [
+        assetKeyOf(courseKey, 'sub-zh'),
+        'subtitle',
+        lessonCode,
+        'zh-CN',
+        `subtitles/${lessonCode}.zh-CN.srt`,
+        null,
+      ],
+      [
         assetKeyOf(courseKey, 'image'),
         'image',
         lessonCode,
@@ -122,18 +138,40 @@ function buildWorkbook(
         `media/${lessonCode}-exhibit.png`,
         null,
       ],
+      [
+        assetKeyOf(courseKey, 'image-thumb'),
+        'thumbnail',
+        null,
+        null,
+        'media/image-thumb.png',
+        assetKeyOf(courseKey, 'image'),
+      ],
     ]),
     sheet('Course Info', [
-      ['title', 'en-GB', title],
-      ['shortDescription', 'en-GB', `${title} short`],
-      ['overview', 'en-GB', `${title} overview`],
-      ['whatYouLearn', 'en-GB', 'Outcome one'],
-      ['whatYouLearn', 'en-GB', 'Outcome two'],
+      ...['en-GB', 'zh-CN'].flatMap((language) => [
+        ['title', language, language === 'en-GB' ? title : `${title} 标题`],
+        ['shortDescription', language, `${title} short`],
+        ['overview', language, `${title} overview`],
+        ['whatYouLearn', language, 'Outcome one'],
+        ['whatYouLearn', language, 'Outcome two'],
+        ['whatYouLearn', language, 'Outcome three'],
+        ['whatYouLearn', language, 'Outcome four'],
+        ['provides', language, 'Provide one'],
+        ['provides', language, 'Provide two'],
+        ['provides', language, 'Provide three'],
+        ['provides', language, 'Provide four'],
+      ]),
     ]),
-    sheet('Lessons', [[lessonCode, 1, 'en-GB', 'Lesson one', 'Lesson desc']]),
+    sheet('Lessons', [
+      [lessonCode, 1, 'en-GB', 'Lesson one', 'Lesson desc'],
+      // 完成度规则（PRD 11.5）：Lesson 标题/描述始终中英文必填，与学习语言无关。
+      [lessonCode, 1, 'zh-CN', '第一课', '课程描述'],
+    ]),
     sheet('Learning Points', [
       [lessonCode, '1.1', 'en-GB', 'Why models matter'],
       [lessonCode, '1.2', 'en-GB', 'Here is a model'],
+      [lessonCode, '1.1', 'zh-CN', '为何模型重要'],
+      [lessonCode, '1.2', 'zh-CN', '这里有一个模型'],
     ]),
     sheet('Exhibits', [
       [
@@ -146,8 +184,21 @@ function buildWorkbook(
         'A model photo',
         null,
       ],
+      [
+        lessonCode,
+        'ex-1',
+        'image',
+        assetKeyOf(courseKey, 'image'),
+        'zh-CN',
+        '模型',
+        '模型照片',
+        null,
+      ],
     ]),
-    sheet('Reading List', []),
+    sheet('Reading List', [
+      // 完成度规则（PRD 12.6 / 20 #19）：推荐阅读列表为空则 Lesson Incomplete。
+      [lessonCode, 'book', 'A reading', 'An author', 'Why we recommend it'],
+    ]),
     sheet('Knowledge Test', []),
     sheet('Application Test', []),
   ];
@@ -167,7 +218,9 @@ function buildWorkbook(
   }) as Buffer;
 }
 
-function buildSrt(): string {
+function buildSrt(
+  titles: [string, string] = ['Why models matter', 'Here is a model'],
+): string {
   return [
     '1',
     '00:00:01,000 --> 00:00:04,000',
@@ -175,11 +228,11 @@ function buildSrt(): string {
     '',
     '2',
     '00:00:05,000 --> 00:00:09,500',
-    'Why models matter',
+    titles[0],
     '',
     '3',
     '00:00:10,000 --> 00:00:12,000',
-    'Here is a model',
+    titles[1],
     '',
   ].join('\n');
 }
@@ -215,7 +268,16 @@ function buildPartcPackage(params: {
     `subtitles/${lessonCode}.en-GB.srt`,
     Buffer.from(buildSrt(), 'utf8'),
   );
+  files.set(
+    `media/${lessonCode}.zh-CN.mp4`,
+    Buffer.from(buildMinimalMp4(60_000)),
+  );
+  files.set(
+    `subtitles/${lessonCode}.zh-CN.srt`,
+    Buffer.from(buildSrt(['为何模型重要', '这里有一个模型']), 'utf8'),
+  );
   files.set(`media/${lessonCode}-exhibit.png`, PNG);
+  files.set('media/image-thumb.png', PNG);
   const manifest = {
     format: 'lg-course-package',
     formatVersion: 2,
@@ -226,9 +288,12 @@ function buildPartcPackage(params: {
     extensionsRequired: [],
     course: {
       courseKey,
-      titleLocalized: { 'en-GB': { title } },
+      titleLocalized: {
+        'en-GB': { title },
+        'zh-CN': { title: `${title} 标题` },
+      },
       categoryPath: params.categoryPath,
-      learningLanguages: ['en-GB'],
+      learningLanguages: ['en-GB', 'zh-CN'],
       studyMode: 'video',
     },
     content: {
@@ -279,6 +344,7 @@ function buildPartcPackage(params: {
       ],
       assetPins: [
         { assetKey: assetKeyOf(courseKey, 'video'), assetVersion: 1 },
+        { assetKey: assetKeyOf(courseKey, 'video-zh'), assetVersion: 1 },
         { assetKey: assetKeyOf(courseKey, 'image'), assetVersion: 1 },
       ],
     },
@@ -290,28 +356,42 @@ function buildPartcPackage(params: {
         size: template.length,
       },
       ...[
-        'media/cover.png',
-        `media/${lessonCode}.en-GB.mp4`,
-        `subtitles/${lessonCode}.en-GB.srt`,
-        `media/${lessonCode}-exhibit.png`,
-      ].map((resourcePath) => ({
-        id:
-          resourcePath === 'media/cover.png'
-            ? assetKeyOf(courseKey, 'cover')
-            : resourcePath.endsWith('.mp4')
-              ? assetKeyOf(courseKey, 'video')
-              : resourcePath.endsWith('.srt')
-                ? assetKeyOf(courseKey, 'sub')
-                : assetKeyOf(courseKey, 'image'),
-        kind: resourcePath.endsWith('.mp4')
-          ? 'video'
-          : resourcePath.endsWith('.srt')
-            ? 'subtitle'
-            : resourcePath === 'media/cover.png'
-              ? 'cover'
-              : 'image',
-        path: resourcePath,
-        size: files.get(resourcePath)!.length,
+        ['media/cover.png', assetKeyOf(courseKey, 'cover'), 'cover'],
+        [
+          `media/${lessonCode}.en-GB.mp4`,
+          assetKeyOf(courseKey, 'video'),
+          'video',
+        ],
+        [
+          `media/${lessonCode}.zh-CN.mp4`,
+          assetKeyOf(courseKey, 'video-zh'),
+          'video',
+        ],
+        [
+          `subtitles/${lessonCode}.en-GB.srt`,
+          assetKeyOf(courseKey, 'sub'),
+          'subtitle',
+        ],
+        [
+          `subtitles/${lessonCode}.zh-CN.srt`,
+          assetKeyOf(courseKey, 'sub-zh'),
+          'subtitle',
+        ],
+        [
+          `media/${lessonCode}-exhibit.png`,
+          assetKeyOf(courseKey, 'image'),
+          'image',
+        ],
+        [
+          'media/image-thumb.png',
+          assetKeyOf(courseKey, 'image-thumb'),
+          'thumbnail',
+        ],
+      ].map(([path, id, kind]) => ({
+        id,
+        kind,
+        path,
+        size: files.get(path)!.length,
       })),
     ],
     provenance: {

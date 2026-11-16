@@ -20,6 +20,7 @@ import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/common/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { E2E_PASSWORD, signInAs } from './helpers/employee-session';
 import { purgePartcCourse } from './helpers/partc-purge';
 
@@ -193,13 +194,14 @@ function hashLikeKeys(value: unknown, found: string[] = []): string[] {
 }
 
 function binaryParser(
-  res: NodeJS.ReadableStream,
+  res: unknown,
   callback: (error: Error | null, body?: Buffer) => void,
 ): void {
+  const stream = res as NodeJS.ReadableStream;
   const chunks: Buffer[] = [];
-  res.on('data', (chunk: Buffer) => chunks.push(chunk));
-  res.on('end', () => callback(null, Buffer.concat(chunks)));
-  res.on('error', (error: Error) => callback(error));
+  stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+  stream.on('end', () => callback(null, Buffer.concat(chunks)));
+  stream.on('error', (error: Error) => callback(error));
 }
 
 function readWorkbookHeaders(bytes: Buffer): Record<string, string[]> {
@@ -575,7 +577,7 @@ describe('Long-range full lifecycle scenario (real package, real HTTP, real Post
             provenance: 'import',
             verifiedBy: null,
             verifiedAt: null,
-            verifiedAgainst: null,
+            verifiedAgainst: Prisma.JsonNull,
           },
         });
         created += 1;

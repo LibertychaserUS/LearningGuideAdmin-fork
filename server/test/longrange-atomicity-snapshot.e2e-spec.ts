@@ -224,13 +224,14 @@ function publishableWarnings(plan: PlanView): PlanView['warnings'] {
 }
 
 function binaryParser(
-  res: NodeJS.ReadableStream,
+  res: unknown,
   callback: (error: Error | null, body?: Buffer) => void,
 ): void {
+  const stream = res as NodeJS.ReadableStream;
   const chunks: Buffer[] = [];
-  res.on('data', (chunk: Buffer) => chunks.push(chunk));
-  res.on('end', () => callback(null, Buffer.concat(chunks)));
-  res.on('error', (error: Error) => callback(error));
+  stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+  stream.on('end', () => callback(null, Buffer.concat(chunks)));
+  stream.on('error', (error: Error) => callback(error));
 }
 
 /**
@@ -475,11 +476,11 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
     return data<CourseDetail>(res);
   }
 
-  async function coursePreview(courseId: string): Promise<unknown> {
+  async function coursePreview(courseId: string): Promise<PreviewView> {
     const res = await agent
       .get(`/api/backoffice/courses/${courseId}/preview`)
       .expect(200);
-    return data<unknown>(res);
+    return data<PreviewView>(res);
   }
 
   async function partcStages(
@@ -1170,7 +1171,7 @@ describe('Long-range T5 (import atomicity/idempotency) + T6 (snapshot/version/pr
         .courses ?? []
     ).find((item) => item.code === courseKey);
     expect(row).toBeTruthy();
-    const courseId = row.id as string;
+    const courseId = row!.id!;
 
     // 构造一个 ACTIVE 分类，并直接排一条 v3 快照（坏版本无 HTTP 写入口）。
     const category = await prisma.courseCatalogueEntry.create({

@@ -285,9 +285,12 @@ async function buildUniqueVariant(
 
   manifest.course = {
     courseKey: key,
-    titleLocalized: { 'en-GB': { title: `${key} title` } },
+    titleLocalized: {
+      'en-GB': { title: `${key} title` },
+      'zh-CN': { title: `${key} 标题` },
+    },
     categoryPath: (manifest.course as { categoryPath?: unknown }).categoryPath,
-    learningLanguages: ['en-GB'],
+    learningLanguages: ['en-GB', 'zh-CN'],
     studyMode: 'video',
   };
   const content = manifest.content as Record<string, unknown>;
@@ -333,10 +336,13 @@ async function buildUniqueVariant(
   ];
   const assetPins = [{ assetKey: coverKey, assetVersion: 1 }];
   assetPins.push({ assetKey: videoKey, assetVersion: 1 });
+  assetPins.push({ assetKey: `${key}-video-zh`, assetVersion: 1 });
   assetPins.push({ assetKey: subKey, assetVersion: 1 });
+  assetPins.push({ assetKey: `${key}-sub-zh`, assetVersion: 1 });
   if (options.docx) assetPins.push({ assetKey: docAsset, assetVersion: 1 });
   for (const exhibit of imageAssets) {
     assetPins.push({ assetKey: exhibit.assetKey, assetVersion: 1 });
+    assetPins.push({ assetKey: `${exhibit.assetKey}-thumb`, assetVersion: 1 });
   }
   content.assetPins = assetPins;
 
@@ -345,9 +351,21 @@ async function buildUniqueVariant(
     { id: coverKey, kind: 'cover', path: 'media/cover.png', size: 0 },
     { id: videoKey, kind: 'video', path: 'media/bad-video.mp4', size: 0 },
     {
+      id: `${key}-video-zh`,
+      kind: 'video',
+      path: 'media/bad-video.zh-CN.mp4',
+      size: 0,
+    },
+    {
       id: subKey,
       kind: 'subtitle',
       path: `subtitles/${lesson}.en-GB.srt`,
+      size: 0,
+    },
+    {
+      id: `${key}-sub-zh`,
+      kind: 'subtitle',
+      path: `subtitles/${lesson}.zh-CN.srt`,
       size: 0,
     },
   ];
@@ -355,12 +373,20 @@ async function buildUniqueVariant(
     resources.push({ id: docAsset, kind: 'document', path: docPath, size: 0 });
   }
   resources.push(
-    ...imageAssets.map((exhibit) => ({
-      id: exhibit.assetKey,
-      kind: 'image',
-      path: exhibit.path,
-      size: 0,
-    })),
+    ...imageAssets.flatMap((exhibit) => [
+      {
+        id: exhibit.assetKey,
+        kind: 'image',
+        path: exhibit.path,
+        size: 0,
+      },
+      {
+        id: `${exhibit.assetKey}-thumb`,
+        kind: 'thumbnail',
+        path: `${exhibit.path}.thumb.png`,
+        size: 0,
+      },
+    ]),
   );
   manifest.resources = resources;
 
@@ -383,7 +409,7 @@ async function buildUniqueVariant(
 
   // 模板：Meta / Media / Lessons / Learning Points / Exhibits 全部改为稳定键。
   await rewriteTemplate(zip, manifest, (sheets) => {
-    sheets.Meta = [sheets.Meta[0], [2, key, 'en-GB', 'video']];
+    sheets.Meta = [sheets.Meta[0], [2, key, 'en-GB,zh-CN', 'video']];
     const mediaRows: unknown[][] = [
       [
         'asset_key',
@@ -396,11 +422,27 @@ async function buildUniqueVariant(
       [coverKey, 'cover', null, null, 'media/cover.png', null],
       [videoKey, 'video', lesson, 'en-GB', 'media/bad-video.mp4', null],
       [
+        `${key}-video-zh`,
+        'video',
+        lesson,
+        'zh-CN',
+        'media/bad-video.zh-CN.mp4',
+        null,
+      ],
+      [
         subKey,
         'subtitle',
         lesson,
         'en-GB',
         `subtitles/${lesson}.en-GB.srt`,
+        null,
+      ],
+      [
+        `${key}-sub-zh`,
+        'subtitle',
+        lesson,
+        'zh-CN',
+        `subtitles/${lesson}.zh-CN.srt`,
         null,
       ],
     ];
@@ -416,15 +458,25 @@ async function buildUniqueVariant(
         exhibit.path,
         null,
       ]);
+      mediaRows.push([
+        `${exhibit.assetKey}-thumb`,
+        'thumbnail',
+        null,
+        null,
+        `${exhibit.path}.thumb.png`,
+        exhibit.assetKey,
+      ]);
     }
     sheets.Media = mediaRows;
     sheets.Lessons = [
       ['lesson_code', 'order', 'language', 'title', 'description'],
       [lesson, 1, 'en-GB', 'Baseline lesson', 'Baseline description'],
+      [lesson, 1, 'zh-CN', '基准课', '基准描述'],
     ];
     sheets['Learning Points'] = [
       ['lesson_code', 'lp_code', 'language', 'title'],
       [lesson, '1.1', 'en-GB', 'Baseline learning point'],
+      [lesson, '1.1', 'zh-CN', '基准学习点'],
     ];
     sheets.Exhibits = [
       [
@@ -437,16 +489,32 @@ async function buildUniqueVariant(
         'description',
         'source',
       ],
-      ...imageAssets.map((exhibit, index) => [
-        lesson,
-        exhibit.code,
-        'image',
-        exhibit.assetKey,
-        'en-GB',
-        `Exhibit ${index + 1}`,
-        `Exhibit ${exhibit.code} description`,
-        null,
+      ...imageAssets.flatMap((exhibit, index) => [
+        [
+          lesson,
+          exhibit.code,
+          'image',
+          exhibit.assetKey,
+          'en-GB',
+          `Exhibit ${index + 1}`,
+          `Exhibit ${exhibit.code} description`,
+          null,
+        ],
+        [
+          lesson,
+          exhibit.code,
+          'image',
+          exhibit.assetKey,
+          'zh-CN',
+          `展品 ${index + 1}`,
+          `展品 ${exhibit.code} 描述`,
+          null,
+        ],
       ]),
+    ];
+    sheets['Reading List'] = [
+      ['lesson_code', 'type', 'title', 'author', 'why'],
+      [lesson, 'book', 'A reading', 'An author', 'Why we recommend it'],
     ];
     sheets['Course Info'] = [
       ['field', 'language', 'text'],
@@ -454,6 +522,10 @@ async function buildUniqueVariant(
       ['shortDescription', 'en-GB', 'Long-range T3/T4 fixture'],
       ['overview', 'en-GB', 'Long-range T3/T4 fixture overview'],
       ['whatYouLearn', 'en-GB', 'Stage and package closure'],
+      ['title', 'zh-CN', `${key} 标题`],
+      ['shortDescription', 'zh-CN', '长程 T3/T4 夹具'],
+      ['overview', 'zh-CN', '长程 T3/T4 夹具概览'],
+      ['whatYouLearn', 'zh-CN', '阶段与包闭合'],
     ];
     sheets['Knowledge Test'] = [
       ['lesson_code', 'order', 'language', 'question', 'reference_answer'],
@@ -468,6 +540,22 @@ async function buildUniqueVariant(
       ? Buffer.from(options.srt, 'utf8')
       : await zip.file(`subtitles/BL1.en-GB.srt`)!.async('nodebuffer');
   zip.file(`subtitles/${lesson}.en-GB.srt`, srtBytes);
+  zip.file(
+    `subtitles/${lesson}.zh-CN.srt`,
+    Buffer.from(
+      [
+        '1',
+        '00:00:00,500 --> 00:00:02,000',
+        '基准学习点',
+        '',
+      ].join('\n'),
+      'utf8',
+    ),
+  );
+  zip.file(
+    'media/bad-video.zh-CN.mp4',
+    await zip.file('media/bad-video.mp4')!.async('nodebuffer'),
+  );
   // 旧 BL1 字幕路径不在 resources 中：删掉，保持包闭合。
   zip.remove('subtitles/BL1.en-GB.srt');
 
@@ -480,6 +568,7 @@ async function buildUniqueVariant(
   }
   for (const exhibit of imageAssets) {
     zip.file(exhibit.path, exhibit.bytes);
+    zip.file(`${exhibit.path}.thumb.png`, exhibit.bytes);
   }
 
   const bytesByPath = new Map<string, number>();
@@ -966,7 +1055,7 @@ describe('Long-range T3/T4: stage/rendition and package closure (e2e)', () => {
     for (const spec of specs) {
       const res = await agent
         .put(`${base}/evidence-specs/${spec.evidenceKey}`)
-        .send(spec.body);
+        .send(spec.body as object);
       expect(res.status).toBe(200);
     }
     const stages = await agent.put(`${base}/stages`).send(stageBody(fixture));
