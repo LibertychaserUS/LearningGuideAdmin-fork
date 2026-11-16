@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { Prisma } from '@prisma/client';
 import {
   PackageManifestV2Schema,
+  partcContentKey,
   type ContentSpec,
   type PackageManifestV2,
   type PublishTarget,
@@ -1032,12 +1033,17 @@ export function buildPartcVersionSnapshot(
       (left < right ? -1 : left > right ? 1 : 0),
   );
 
-  // buildPartcVersionSnapshot 的正文由 align 的 body 块提供（语言中立结构块）。
-  const bodyHtml = compiled.align.blocks.find(
-    (block) => block.blockId === 'body',
-  )?.payload;
-  const bodyHtmlText =
-    bodyHtml !== undefined && bodyHtml.kind === 'text' ? bodyHtml.html : null;
+  // R15：正文按课时自己的 contentKey 取对应 body 块（align 的 body 块是
+  // 语言中立结构块：每课时一块、该课时的多语言共享同一 html，共享语义不变；
+  // 修复前这里取全包第一个 body 块，多课时文本课互相覆盖）。
+  const bodyHtmlByLesson = new Map<string, string | null>();
+  for (const block of compiled.align.blocks) {
+    if (block.blockId !== 'body') continue;
+    if (block.payload.kind !== 'text') continue;
+    bodyHtmlByLesson.set(block.contentKey, block.payload.html);
+  }
+  const bodyHtmlOf = (lessonCode: string): string | null =>
+    bodyHtmlByLesson.get(partcContentKey(courseKey, lessonCode)) ?? null;
 
   const lessons: SnapshotLesson[] = lessonCodes.map((lessonCode, index) => {
     const lessonRows = rows.lessons.filter(
@@ -1085,8 +1091,8 @@ export function buildPartcVersionSnapshot(
           durationMs !== null && durationMs !== undefined
             ? Math.round(durationMs / 1000)
             : null,
-        // 正文块是语言中立结构块（align 语义）：所有语言共享同一 html。
-        textHtml: documentRow !== undefined ? bodyHtmlText : null,
+        // 正文块是语言中立结构块（align 语义）：该课时的所有语言共享同一 html。
+        textHtml: documentRow !== undefined ? bodyHtmlOf(lessonCode) : null,
         textLearningPoints: [],
       };
     });

@@ -1,4 +1,4 @@
-import { canonicalJson } from '../contracts';
+import { canonicalJson, partcContentKey } from '../contracts';
 import {
   ALIGN_RULE_VERSION,
   alignPackage,
@@ -15,6 +15,7 @@ import type { PackageIR, RawPackage, RawWorkbook } from './parse';
 import { validatePackage } from './validate';
 import type { ValidatedRows } from './validate';
 import {
+  COURSE_KEY,
   EXHIBIT_CODE,
   LESSON_CODE,
   LP_CODE,
@@ -108,11 +109,13 @@ describe('P4 ContentSpec/Block 派生（C3/P4）', () => {
     const { result } = buildPipeline();
     expect(result.issues).toEqual([]);
     expect(result.ruleVersion).toBe(ALIGN_RULE_VERSION);
+    // R14：派生内容键带课程级命名空间（partcContentKey(courseKey, lesson_code)）。
+    const mainKey = partcContentKey(COURSE_KEY, LESSON_CODE);
     expect(result.contentSpecs.map((spec) => spec.contentKey)).toEqual([
-      'lesson-01',
-      'lesson-01.application-test',
-      'lesson-01.knowledge-test',
-      'lesson-01.reading',
+      mainKey,
+      `${mainKey}.application-test`,
+      `${mainKey}.knowledge-test`,
+      `${mainKey}.reading`,
     ]);
     const main = result.contentSpecs[0];
     expect(main.type).toBe('video');
@@ -197,7 +200,9 @@ describe('P4 ContentSpec/Block 派生（C3/P4）', () => {
       ),
     ).toBe(true);
     expect(
-      result.contentSpecs.some((spec) => spec.contentKey === 'lesson-01'),
+      result.contentSpecs.some(
+        (spec) => spec.contentKey === partcContentKey(COURSE_KEY, LESSON_CODE),
+      ),
     ).toBe(false);
   });
 });
@@ -391,7 +396,7 @@ describe('P4 proposed Alignment：旧内容重绑（import/legacy、rebound/stal
   it('lists old spec pins that the payload no longer derives as superseded', () => {
     const content = priorContent({ carrierVersion: 1 });
     (content as { specPins: unknown[] }).specPins = [
-      { contentKey: LESSON_CODE, version: 1 },
+      { contentKey: partcContentKey(COURSE_KEY, LESSON_CODE), version: 1 },
       { contentKey: 'legacy-spec', version: 3 },
     ];
     const { result } = buildPipeline({ content });
@@ -407,7 +412,7 @@ describe('P4 显式 binding seeds（不猜语义绑定）', () => {
         bindingSeeds: [
           {
             stageKey: 'step-01',
-            contentKey: LESSON_CODE,
+            contentKey: partcContentKey(COURSE_KEY, LESSON_CODE),
             blockId: 'video',
             language: 'zh-CN',
             objectiveKey: 'obj-01',
@@ -432,7 +437,7 @@ describe('P4 显式 binding seeds（不猜语义绑定）', () => {
         bindingSeeds: [
           {
             stageKey: 'ghost-stage',
-            contentKey: LESSON_CODE,
+            contentKey: partcContentKey(COURSE_KEY, LESSON_CODE),
             objectiveKey: 'obj-01',
             role: 'primary',
           },
@@ -461,7 +466,7 @@ describe('P4 显式 binding seeds（不猜语义绑定）', () => {
         bindingSeeds: [
           {
             stageKey: 'step-01',
-            contentKey: LESSON_CODE,
+            contentKey: partcContentKey(COURSE_KEY, LESSON_CODE),
             blockId: 'video',
             language: 'en-GB',
             objectiveKey: 'obj-02',
@@ -521,7 +526,7 @@ describe('P4 确定性与 golden（PLN-1 精神：同输入同字节，无哈希
   it('locks the golden projection for the canonical v2 fixture', () => {
     const { result } = buildPipeline();
     expect(canonicalJson(projection(result))).toBe(
-      `{"alignments":[],"renditions":[{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":null,"key":"r.lesson-01.body.en-GB.text.document.asset-doc-en.body","revision":1,"start":null},{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":"1.1","key":"r.lesson-01.body.en-GB.text.document.asset-doc-en.lp.lp-01","revision":1,"start":null},{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":null,"key":"r.lesson-01.body.zh-CN.text.document.asset-doc-zh.body","revision":1,"start":null},{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":"1.1","key":"r.lesson-01.body.zh-CN.text.document.asset-doc-zh.lp.lp-01","revision":1,"start":null},{"anchor":"import-legacy","carrierVersion":1,"end":null,"heading":null,"key":"r.lesson-01.ex-01.en-GB.image.asset.asset-image-01-thumb.thumbnail","revision":1,"start":null},{"anchor":"import-legacy","carrierVersion":1,"end":null,"heading":null,"key":"r.lesson-01.ex-01.en-GB.image.asset.asset-image-01.main","revision":1,"start":null},{"anchor":"subtitle","carrierVersion":1,"end":12000,"heading":null,"key":"r.lesson-01.ex-01.en-GB.video.asset.asset-video-en.trigger.1","revision":1,"start":10000},{"anchor":"import-legacy","carrierVersion":1,"end":null,"heading":null,"key":"r.lesson-01.ex-01.zh-CN.image.asset.asset-image-01.main","revision":1,"start":null},{"anchor":"subtitle","carrierVersion":1,"end":12000,"heading":null,"key":"r.lesson-01.ex-01.zh-CN.video.asset.asset-video-zh.trigger.1","revision":1,"start":10000},{"anchor":"subtitle","carrierVersion":1,"end":9500,"heading":null,"key":"r.lesson-01.video.en-GB.video.asset.asset-video-en.lp.lp-01","revision":1,"start":5000},{"anchor":"subtitle","carrierVersion":1,"end":9500,"heading":null,"key":"r.lesson-01.video.zh-CN.video.asset.asset-video-zh.lp.lp-01","revision":1,"start":5000}],"specs":[{"blocks":["video","body","ex-01"],"key":"lesson-01","type":"video"},{"blocks":["application"],"key":"lesson-01.application-test","type":"application-test"},{"blocks":["q.1"],"key":"lesson-01.knowledge-test","type":"knowledge-test"},{"blocks":["reading.1"],"key":"lesson-01.reading","type":"reading"}],"superseded":{"contentKeys":[],"renditionKeys":[]}}`,
+      `{"alignments":[],"renditions":[{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":null,"key":"r.modeling-life.lesson-01.body.en-GB.text.document.asset-doc-en.body","revision":1,"start":null},{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":"1.1","key":"r.modeling-life.lesson-01.body.en-GB.text.document.asset-doc-en.lp.lp-01","revision":1,"start":null},{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":null,"key":"r.modeling-life.lesson-01.body.zh-CN.text.document.asset-doc-zh.body","revision":1,"start":null},{"anchor":"doc-structure","carrierVersion":1,"end":null,"heading":"1.1","key":"r.modeling-life.lesson-01.body.zh-CN.text.document.asset-doc-zh.lp.lp-01","revision":1,"start":null},{"anchor":"import-legacy","carrierVersion":1,"end":null,"heading":null,"key":"r.modeling-life.lesson-01.ex-01.en-GB.image.asset.asset-image-01-thumb.thumbnail","revision":1,"start":null},{"anchor":"import-legacy","carrierVersion":1,"end":null,"heading":null,"key":"r.modeling-life.lesson-01.ex-01.en-GB.image.asset.asset-image-01.main","revision":1,"start":null},{"anchor":"subtitle","carrierVersion":1,"end":12000,"heading":null,"key":"r.modeling-life.lesson-01.ex-01.en-GB.video.asset.asset-video-en.trigger.1","revision":1,"start":10000},{"anchor":"import-legacy","carrierVersion":1,"end":null,"heading":null,"key":"r.modeling-life.lesson-01.ex-01.zh-CN.image.asset.asset-image-01.main","revision":1,"start":null},{"anchor":"subtitle","carrierVersion":1,"end":12000,"heading":null,"key":"r.modeling-life.lesson-01.ex-01.zh-CN.video.asset.asset-video-zh.trigger.1","revision":1,"start":10000},{"anchor":"subtitle","carrierVersion":1,"end":9500,"heading":null,"key":"r.modeling-life.lesson-01.video.en-GB.video.asset.asset-video-en.lp.lp-01","revision":1,"start":5000},{"anchor":"subtitle","carrierVersion":1,"end":9500,"heading":null,"key":"r.modeling-life.lesson-01.video.zh-CN.video.asset.asset-video-zh.lp.lp-01","revision":1,"start":5000}],"specs":[{"blocks":["video","body","ex-01"],"key":"modeling-life.lesson-01","type":"video"},{"blocks":["application"],"key":"modeling-life.lesson-01.application-test","type":"application-test"},{"blocks":["q.1"],"key":"modeling-life.lesson-01.knowledge-test","type":"knowledge-test"},{"blocks":["reading.1"],"key":"modeling-life.lesson-01.reading","type":"reading"}],"superseded":{"contentKeys":[],"renditionKeys":[]}}`,
     );
   });
 
@@ -619,7 +624,7 @@ describe('P4 ASR-derived renditions and alignment provenance (C5 P3/P4/C7)', () 
       bindingSeeds: [
         {
           stageKey: 'step-01',
-          contentKey: LESSON_CODE,
+          contentKey: partcContentKey(COURSE_KEY, LESSON_CODE),
           blockId: 'video',
           language: 'en-GB',
           objectiveKey: 'obj-01',

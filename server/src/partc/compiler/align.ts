@@ -3,6 +3,7 @@ import {
   BlockSchema,
   ContentSpecSchema,
   RenditionSchema,
+  partcContentKey,
   renditionBusinessKey,
 } from '../contracts';
 import type {
@@ -35,9 +36,10 @@ import type {
  * Part C 编译器 P4：从 Part B payload + 派生时间生成内容工件（设计 §14 C5 P4、C3、C4）。
  *
  * 产物（全部纯函数、确定性、无内容指纹、无环境 UUID）：
- * - ContentSpec/Block：每个 lesson 一主体 spec（contentKey=lesson_code，
- *   type=video|text），外加 reading / knowledge-test / application-test 三个可选的
- *   附属 spec（contentKey=`{lesson}.{kind}`）。blockId 稳定：video / body /
+ * - ContentSpec/Block：每个 lesson 一主体 spec（contentKey 按 R14 注入课程级
+ *   命名空间 partcContentKey(courseKey, lesson_code)，type=video|text），外加
+ *   reading / knowledge-test / application-test 三个可选的附属 spec
+ *   （contentKey=`{main}.{kind}`）。blockId 稳定：video / body /
  *   exhibit code / reading.N / q.{order} / application。
  * - Rendition：由 TimingResult 的坐标 + 媒体绑定生成；业务键严格按 C3 八字段，
  *   renditionKey 由稳定字段拼接（不含 carrierVersion：资产换版保持逻辑身份，
@@ -255,6 +257,8 @@ function deriveContentSpecs(
   const specs: ContentSpec[] = [];
   const blocks: Block[] = [];
   const blockIdsByContentKey = new Map<string, Set<string>>();
+  // R14：派生键注入课程级命名空间（与导出侧同一公式，稳定往返）。
+  const courseKey = ir.course.courseKey;
 
   const lessonCodes = [
     ...new Set(rows.lessons.map((row) => row.value.lesson_code)),
@@ -285,7 +289,7 @@ function deriveContentSpecs(
       continue;
     }
 
-    const mainContentKey = lessonCode;
+    const mainContentKey = partcContentKey(courseKey, lessonCode);
     const mainBlocks: Block[] = [];
 
     const videoRows = rows.media.filter(
@@ -441,7 +445,7 @@ function deriveContentSpecs(
       (row) => row.value.lesson_code === lessonCode,
     );
     if (readingRows.length > 0) {
-      const readingKey = `${lessonCode}.reading`;
+      const readingKey = `${mainContentKey}.reading`;
       const readingBlocks = readingRows.map((row, index) => {
         const author =
           row.value.author === null ? '' : ` — ${escapeHtml(row.value.author)}`;
@@ -479,7 +483,7 @@ function deriveContentSpecs(
       (row) => row.value.lesson_code === lessonCode,
     );
     if (ktRows.length > 0) {
-      const ktKey = `${lessonCode}.knowledge-test`;
+      const ktKey = `${mainContentKey}.knowledge-test`;
       const byOrder = new Map<number, typeof ktRows>();
       for (const row of ktRows) {
         const list = byOrder.get(row.value.order) ?? [];
@@ -550,7 +554,7 @@ function deriveContentSpecs(
       (row) => row.value.lesson_code === lessonCode,
     );
     if (atRows.length > 0) {
-      const atKey = `${lessonCode}.application-test`;
+      const atKey = `${mainContentKey}.application-test`;
       const en = atRows.find((row) => row.value.language === 'en-GB');
       const zh = atRows.find((row) => row.value.language === 'zh-CN');
       if (en === undefined || zh === undefined) {
@@ -688,6 +692,8 @@ function deriveRenditions(
 ): DerivedRenditions {
   const { ir, rows, timing } = input;
   const assetVersions = input.options.assetVersions;
+  // R14：rendition 的 contentKey 与 ContentSpec 派生同一命名空间公式。
+  const courseKey = ir.course.courseKey;
 
   const candidates: RenditionCandidate[] = [];
 
@@ -731,7 +737,7 @@ function deriveRenditions(
 
   // 1) 时间坐标（P3）→ Rendition（视频区间 / DOCX heading）。
   for (const coordinate of timing.coordinates) {
-    const contentKey = coordinate.lessonCode;
+    const contentKey = partcContentKey(courseKey, coordinate.lessonCode);
     if (coordinate.carrierType === 'asset') {
       const blockId = coordinate.kind === 'lp' ? 'video' : coordinate.code;
       if (!requireBlock(contentKey, blockId, 'timing-asset-block-missing')) {
@@ -785,7 +791,7 @@ function deriveRenditions(
   for (const row of rows.media) {
     if (row.value.kind !== 'lesson-text') continue;
     if (row.value.lesson_code === null || row.value.language === null) continue;
-    const contentKey = row.value.lesson_code;
+    const contentKey = partcContentKey(courseKey, row.value.lesson_code);
     if (!requireBlock(contentKey, 'body', 'document-block-missing')) continue;
     const version = requireAssetVersion(row.value.asset_key);
     if (version === null) continue;
@@ -811,7 +817,7 @@ function deriveRenditions(
   for (const row of rows.exhibits) {
     if (row.value.media_type === 'text') continue;
     if (row.value.asset_key === null) continue;
-    const contentKey = row.value.lesson_code;
+    const contentKey = partcContentKey(courseKey, row.value.lesson_code);
     if (
       !requireBlock(contentKey, row.value.exhibit_code, 'exhibit-block-missing')
     ) {
@@ -843,7 +849,7 @@ function deriveRenditions(
           );
     if (exhibitRows.length === 0) continue; // cover 缩略图属课程级，不是 block rendition
     const exhibit = exhibitRows[0];
-    const contentKey = exhibit.value.lesson_code;
+    const contentKey = partcContentKey(courseKey, exhibit.value.lesson_code);
     if (
       !requireBlock(
         contentKey,

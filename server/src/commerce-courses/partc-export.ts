@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import {
   PackageManifestV2Schema,
+  partcContentKey,
   type Alignment,
   type ContentVersionContent,
   type PackageManifestV2,
@@ -357,6 +358,11 @@ function applyCarriedMedia(
   built: BuiltPackage,
   carried: readonly CarriedMediaAsset[],
 ): BuiltPackage {
+  // R14：carriedMedia 的 contentKey 是 Pc 真源键（课程级命名空间），而 Media/
+  // Exhibits 工作表的 lesson_code 是模板局部码；桥接查找必须按同一公式
+  // partcContentKey(courseKey, lessonCode) 对齐，否则携带的 assetKey/
+  // assetVersion/anchorSource 会因键不匹配而丢失。
+  const courseKey = built.content.courseKey;
   const workbook = XLSX.read(built.templateBytes, { type: 'buffer' });
   const mediaSheet = workbook.Sheets.Media;
   const exhibitSheet = workbook.Sheets.Exhibits;
@@ -482,18 +488,24 @@ function applyCarriedMedia(
       typeof lessonCode === 'string' &&
       typeof language === 'string'
     ) {
-      target = videoByLessonLanguage.get(`${lessonCode}\u0000${language}`);
+      target = videoByLessonLanguage.get(
+        `${partcContentKey(courseKey, lessonCode)}\u0000${language}`,
+      );
     } else if (
       kind === 'lesson-text' &&
       typeof lessonCode === 'string' &&
       typeof language === 'string'
     ) {
-      target = documentByLessonLanguage.get(`${lessonCode}\u0000${language}`);
+      target = documentByLessonLanguage.get(
+        `${partcContentKey(courseKey, lessonCode)}\u0000${language}`,
+      );
     } else if (kind === 'thumbnail' && typeof lessonCode === 'string') {
       // legacy 缩略图键 `exhibit-<code>-thumb` → Pc `l1-ex1-thumb`。
       const match = /^exhibit-(.+)-thumb$/.exec(assetKey);
       if (match !== null) {
-        target = thumbnailByLessonBlock.get(`${lessonCode}\u0000${match[1]}`);
+        target = thumbnailByLessonBlock.get(
+          `${partcContentKey(courseKey, lessonCode)}\u0000${match[1]}`,
+        );
       }
     } else if (
       (kind === 'image' || kind === 'video' || kind === 'model3d') &&
@@ -503,7 +515,7 @@ function applyCarriedMedia(
       const exhibit = exhibitCodeByAssetKey.get(assetKey);
       if (exhibit !== undefined) {
         target = exhibitByLessonCode.get(
-          `${exhibit.lessonCode}\u0000${exhibit.exhibitCode}`,
+          `${partcContentKey(courseKey, exhibit.lessonCode)}\u0000${exhibit.exhibitCode}`,
         );
       }
     }
@@ -1209,13 +1221,16 @@ async function buildPackageContents(
     );
   }
 
-  // 阅读/知识题/应用题的内容 key 只在课时有对应行时 pin。
-  const lessonCodes = new Set(
-    lessons.map((lesson) => stableToken(lesson.code, 'lesson')),
+  // 阅读/知识题/应用题的内容 key 只在课时有对应行时 pin；主内容 key 按
+  // R14 命名空间公式从课程与课时码派生（与导入侧同一公式）。
+  const mainContentKeys = new Set(
+    lessons.map((lesson) =>
+      partcContentKey(courseKey, stableToken(lesson.code, 'lesson')),
+    ),
   );
   for (const pin of [...specPins]) {
     if (
-      !lessonCodes.has(pin.contentKey) &&
+      !mainContentKeys.has(pin.contentKey) &&
       !/\.(reading|knowledge-test|application-test)$/.test(pin.contentKey)
     ) {
       throw new Error(
@@ -1511,12 +1526,22 @@ async function writeLesson(
   helpers: LessonBuildHelpers,
 ): Promise<void> {
   const lessonCode = stableToken(lesson.code, `lesson-${lessonIndex + 1}`);
-  const stepKey = stableToken(`step-${lessonCode}`, `step-${lessonIndex + 1}`);
+  // R14：课程局部键注入 courseKey 命名空间（与导入侧 align/validate 同一
+  // 公式 partcContentKey，稳定可往返；不含内容哈希）。同模板多门课的键互不
+  // 冲突，导入的全局唯一 upsert（pc_stage/pc_objective/pc_evidence_spec/
+  // pc_content_spec/pc_rendition）不再整包失败或静默改属。
+  const stepKey = stableToken(
+    `step-${context.courseKey}-${lessonCode}`,
+    `step-${lessonIndex + 1}`,
+  );
   const objectiveKey = stableToken(
-    `obj-${lessonCode}`,
+    `obj-${context.courseKey}-${lessonCode}`,
     `obj-${lessonIndex + 1}`,
   );
-  const evidenceKey = stableToken(`ev-${lessonCode}`, `ev-${lessonIndex + 1}`);
+  const evidenceKey = stableToken(
+    `ev-${context.courseKey}-${lessonCode}`,
+    `ev-${lessonIndex + 1}`,
+  );
   const localizedEntries = Object.entries(lesson.localized ?? {});
   const title =
     localizedEntries.find(([language]) => language === defaultLanguage)?.[1]
@@ -1550,7 +1575,7 @@ async function writeLesson(
     attempts: 1,
   } as unknown as ContentVersionContent['evidenceSpecs'][number]);
 
-  const mainContentKey = lessonCode;
+  const mainContentKey = partcContentKey(context.courseKey, lessonCode);
   context.specPins.push({ contentKey: mainContentKey, version: 1 });
 
   // 展品媒体与触发所依赖的媒体：先按课时注册一次（语言无关，避免重复文件）。
@@ -1881,7 +1906,7 @@ async function writeLesson(
   }
 
   // 推荐阅读：模板每行一个阅读项（无语言列），只导出默认语言行。
-  const readingKey = `${lessonCode}.reading`;
+  const readingKey = `${mainContentKey}.reading`;
   const defaultReadings = lesson.recommendedReading?.[defaultLanguage] ?? [];
   if (defaultReadings.length > 0) {
     context.specPins.push({ contentKey: readingKey, version: 1 });
@@ -1900,7 +1925,7 @@ async function writeLesson(
   const questions = lesson.knowledgeTest?.questions ?? [];
   if (lesson.knowledgeTest?.enabled && questions.length > 0) {
     context.specPins.push({
-      contentKey: `${lessonCode}.knowledge-test`,
+      contentKey: `${mainContentKey}.knowledge-test`,
       version: 1,
     });
     for (const [index, question] of questions.entries()) {
@@ -1916,7 +1941,7 @@ async function writeLesson(
 
   if (lesson.applicationTest?.enabled) {
     context.specPins.push({
-      contentKey: `${lessonCode}.application-test`,
+      contentKey: `${mainContentKey}.application-test`,
       version: 1,
     });
     context.applicationRows.push([

@@ -10,6 +10,7 @@ import {
   TemplateLessonRowSchema,
   TemplateMediaRowSchema,
   TemplateReadingRowSchema,
+  partcContentKey,
 } from '../contracts';
 import type {
   ContentVersionContent,
@@ -1366,16 +1367,27 @@ function checkPins(
     }
   }
 
+  // R14：本包 payload 能派生的内容键按课程级命名空间公式计算（与 align 派生
+  // 同一公式），否则修复后每个导出包的主 pin 都会误报 SPEC_PIN_UNKNOWN。
+  const courseKey = ir.course.courseKey;
   const derivedContentKeys = new Set<string>();
-  for (const row of rows.lessons) derivedContentKeys.add(row.value.lesson_code);
+  for (const row of rows.lessons) {
+    derivedContentKeys.add(partcContentKey(courseKey, row.value.lesson_code));
+  }
   for (const row of rows.readings) {
-    derivedContentKeys.add(`${row.value.lesson_code}.reading`);
+    derivedContentKeys.add(
+      `${partcContentKey(courseKey, row.value.lesson_code)}.reading`,
+    );
   }
   for (const row of rows.knowledgeTests) {
-    derivedContentKeys.add(`${row.value.lesson_code}.knowledge-test`);
+    derivedContentKeys.add(
+      `${partcContentKey(courseKey, row.value.lesson_code)}.knowledge-test`,
+    );
   }
   for (const row of rows.applicationTests) {
-    derivedContentKeys.add(`${row.value.lesson_code}.application-test`);
+    derivedContentKeys.add(
+      `${partcContentKey(courseKey, row.value.lesson_code)}.application-test`,
+    );
   }
   for (const [index, pin] of ir.content.specPins.entries()) {
     if (!derivedContentKeys.has(pin.contentKey)) {

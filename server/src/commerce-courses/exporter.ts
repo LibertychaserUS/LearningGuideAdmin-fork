@@ -19,6 +19,7 @@ import {
   PrerequisiteEdgeSchema,
   RenditionSchema,
   StageSchema,
+  partcContentKey,
   type Alignment,
   type EvidenceSpec,
   type PrerequisiteEdge,
@@ -132,15 +133,24 @@ async function loadPartcExportAudit(
   };
 }
 
-/** 课程内容 key 集合（课时主体 + 附属 spec）；用于按课程筛选 Pc rendition。 */
-function contentKeysOfLessonCodes(lessonCodes: readonly string[]): string[] {
+/**
+ * 课程内容 key 集合（课时主体 + 附属 spec）；用于按课程筛选 Pc rendition。
+ * R14：Pc 落库的内容键带课程级命名空间（与编译器派生同一公式），这里必须
+ * 用同一公式才能命中本课程的行，否则导入过的课程重导出会回退 legacy 合成、
+ * 丢失 Pc 键与 verified 对齐携带。
+ */
+function contentKeysOfLessonCodes(
+  courseKey: string,
+  lessonCodes: readonly string[],
+): string[] {
   const keys: string[] = [];
   for (const code of lessonCodes) {
+    const main = partcContentKey(courseKey, code);
     keys.push(
-      code,
-      `${code}.reading`,
-      `${code}.knowledge-test`,
-      `${code}.application-test`,
+      main,
+      `${main}.reading`,
+      `${main}.knowledge-test`,
+      `${main}.application-test`,
     );
   }
   return keys;
@@ -472,6 +482,7 @@ export async function buildCoursePackage(
   const mediaBytes = await readMediaBytes(storage, media);
   const exportedAt = new Date().toISOString();
   const contentKeys = contentKeysOfLessonCodes(
+    course.code,
     agg.lessons.map((lesson) => lesson.code),
   );
   const audit = await loadPartcExportAudit(prisma, course.code, contentKeys);
@@ -496,7 +507,10 @@ export async function buildCoursePackage(
   for (const lesson of agg.lessons) {
     for (const lp of lesson.learningPoints ?? []) {
       if (lp.timeSeconds !== null) {
-        timedLessonLanguages.add(`${lesson.code}\u0000${lp.language}`);
+        // R14：与 Pc rendition.contentKey（课程级命名空间）对齐。
+        timedLessonLanguages.add(
+          `${partcContentKey(course.code, lesson.code)}\u0000${lp.language}`,
+        );
       }
     }
   }
@@ -779,6 +793,7 @@ export async function buildCoursePackageFromSnapshot(
 
   const exportedAt = new Date().toISOString();
   const contentKeys = contentKeysOfLessonCodes(
+    snapshot.course.code,
     snapshot.course.lessons.map((lesson) => lesson.code),
   );
   const audit = await loadPartcExportAudit(

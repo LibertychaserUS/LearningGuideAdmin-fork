@@ -1,4 +1,4 @@
-import { TEMPLATE_V2_HEADERS } from '../contracts';
+import { TEMPLATE_V2_HEADERS, partcContentKey } from '../contracts';
 import { TEMPLATE_VERSION } from '../version-matrix';
 import type { RawPackage, RawSheet, RawWorkbook } from './parse';
 import type { DocumentStructureInput } from './derive-timing';
@@ -595,8 +595,10 @@ export function priorContent(options: PriorContentOptions = {}) {
   const revision = options.revision ?? 2;
   const provenance = options.provenance ?? 'human';
   const content = baseContent();
+  // R14：上一版内容的内容键同样带课程级命名空间（与派生同一公式），
+  // 否则 anchor identity 与派生 rendition 不匹配、重绑全部落空。
   (content as { specPins: unknown[] }).specPins = [
-    { contentKey: LESSON_CODE, version: 1 },
+    { contentKey: partcContentKey(COURSE_KEY, LESSON_CODE), version: 1 },
   ];
   (content as { assetPins: unknown[] }).assetPins = [
     { assetKey: 'asset-video-en', assetVersion: carrierVersion },
@@ -604,7 +606,7 @@ export function priorContent(options: PriorContentOptions = {}) {
   (content as { renditions: unknown[] }).renditions = [
     {
       renditionKey: 'old-r-lp-en',
-      contentKey: LESSON_CODE,
+      contentKey: partcContentKey(COURSE_KEY, LESSON_CODE),
       blockId: 'video',
       language: 'en-GB',
       modality: 'video',

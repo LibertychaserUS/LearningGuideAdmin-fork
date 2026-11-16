@@ -80,3 +80,25 @@ export function assetKey(value: string): AssetKey {
 export function locale(value: string): Locale {
   return LocaleSchema.parse(value);
 }
+
+/**
+ * 课程局部内容键的课程级命名空间注入（R14 缺陷修复）。
+ *
+ * lesson 的模板 lesson_code 是课程局部语义（同一模板可被多门课复用），但
+ * pc_content_spec/pc_block/pc_rendition 的键是全局唯一的：不加命名空间时，
+ * 同模板第二门课的导入会把这些行 upsert 改属给后导入的课程（静默覆盖）。
+ * 因此主 contentKey 一律按 `${courseKey}.${lessonCode}` 合成，附属 spec 键从
+ * 主键派生（`${main}.reading` / `.knowledge-test` / `.application-test`）。
+ * 导出侧（partc-export）与导入侧（compiler/align、compiler/validate、
+ * exporter 的 Pc 真源加载、partc-import 的投影）共用同一公式，保证
+ * 导出→导入→再导出稳定往返。不使用任何内容哈希。
+ *
+ * courseKey 与 lessonCode 均已被 STABLE_KEY_PATTERN 约束，合成结果仍是
+ * 合法稳定键。
+ */
+export function partcContentKey(
+  courseKeyValue: string,
+  lessonCode: string,
+): string {
+  return `${courseKeyValue}.${lessonCode}`;
+}
