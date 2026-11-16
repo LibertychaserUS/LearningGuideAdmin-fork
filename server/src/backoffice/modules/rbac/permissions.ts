@@ -101,24 +101,21 @@ export function canViewMenu(role: EmployeeRole, menu: MenuKey): boolean {
   return levelFor(role, menu) !== 'NONE';
 }
 
+/** 动作 → 允许的级别。用 Map 而不是对象字面量：未知动作（含 constructor 这类原型键）必须落空。 */
+const ACTION_LEVELS = new Map<ActionKind, readonly PermissionLevel[]>([
+  ['VIEW', ['VIEW', 'EDIT', 'FULL']],
+  ['EDIT_EXISTING', ['EDIT', 'FULL']],
+  ['CREATE', ['FULL']],
+  ['DELETE', ['FULL']],
+  ['PUBLISH', ['FULL']],
+]);
+
 export function isActionAllowed(
   role: EmployeeRole,
   menu: MenuKey,
   action: ActionKind,
 ): boolean {
-  const level = levelFor(role, menu);
-  switch (action) {
-    case 'VIEW':
-      return level !== 'NONE';
-    case 'EDIT_EXISTING':
-      return level === 'EDIT' || level === 'FULL';
-    case 'CREATE':
-    case 'DELETE':
-    case 'PUBLISH':
-      return level === 'FULL';
-    default:
-      return false;
-  }
+  return (ACTION_LEVELS.get(action) ?? []).includes(levelFor(role, menu));
 }
 
 export function visibleMenus(role: EmployeeRole): MenuKey[] {

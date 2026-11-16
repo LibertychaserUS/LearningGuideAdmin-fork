@@ -19,34 +19,80 @@ describe('last active admin guard (BUG-0329)', () => {
   } as const;
 
   it('blocks demoting the only usable Admin', () => {
-    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, nextRole: 'OPERATION_ADMIN' }), true);
+    assert.equal(
+      leavesNoActiveAdmin({ ...lastAdmin, nextRole: 'OPERATION_ADMIN' }),
+      true,
+    );
   });
 
   it('blocks deactivating the only usable Admin', () => {
-    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, nextStatus: 'INACTIVE' }), true);
+    assert.equal(
+      leavesNoActiveAdmin({ ...lastAdmin, nextStatus: 'INACTIVE' }),
+      true,
+    );
   });
 
   it('allows it when another usable Admin remains', () => {
     assert.equal(
-      leavesNoActiveAdmin({ ...lastAdmin, otherActiveAdmins: 1, nextRole: 'OPERATION_ADMIN' }),
+      leavesNoActiveAdmin({
+        ...lastAdmin,
+        otherActiveAdmins: 1,
+        nextRole: 'OPERATION_ADMIN',
+      }),
       false,
     );
   });
 
   it('ignores edits that keep the account a usable Admin', () => {
-    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, nextRole: 'ADMIN', nextStatus: 'ACTIVE' }), false);
+    assert.equal(
+      leavesNoActiveAdmin({
+        ...lastAdmin,
+        nextRole: 'ADMIN',
+        nextStatus: 'ACTIVE',
+      }),
+      false,
+    );
   });
 
   it('does not count an unverified Admin as usable', () => {
     assert.equal(
-      leavesNoActiveAdmin({ ...lastAdmin, emailVerified: false, nextRole: 'OPERATION_ADMIN' }),
+      leavesNoActiveAdmin({
+        ...lastAdmin,
+        emailVerified: false,
+        nextRole: 'OPERATION_ADMIN',
+      }),
       false,
     );
   });
 
   it('ignores non-Admins and Admins that are already inactive', () => {
-    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, currentRole: 'FINANCE', nextRole: 'OPERATION_AI' }), false);
-    assert.equal(leavesNoActiveAdmin({ ...lastAdmin, currentStatus: 'INACTIVE', nextStatus: 'INACTIVE' }), false);
+    assert.equal(
+      leavesNoActiveAdmin({
+        ...lastAdmin,
+        currentRole: 'FINANCE',
+        nextRole: 'OPERATION_AI',
+      }),
+      false,
+    );
+    assert.equal(
+      leavesNoActiveAdmin({
+        ...lastAdmin,
+        currentStatus: 'INACTIVE',
+        nextStatus: 'INACTIVE',
+      }),
+      false,
+    );
+  });
+
+  it('reactivating an inactive Admin is not a removal', () => {
+    assert.equal(
+      leavesNoActiveAdmin({
+        ...lastAdmin,
+        currentStatus: 'INACTIVE',
+        nextStatus: 'ACTIVE',
+      }),
+      false,
+    );
   });
 });
 
@@ -59,7 +105,10 @@ describe('self-edit guard (BUG-0329)', () => {
   } as const;
 
   it('blocks changing your own role', () => {
-    assert.equal(editsOwnAuthority({ ...base, nextRole: 'OPERATION_ADMIN' }), true);
+    assert.equal(
+      editsOwnAuthority({ ...base, nextRole: 'OPERATION_ADMIN' }),
+      true,
+    );
   });
 
   it('blocks deactivating yourself', () => {
@@ -68,13 +117,21 @@ describe('self-edit guard (BUG-0329)', () => {
 
   it('allows editing someone else', () => {
     assert.equal(
-      editsOwnAuthority({ ...base, targetEmployeeId: 'e-2', nextRole: 'OPERATION_ADMIN', nextStatus: 'INACTIVE' }),
+      editsOwnAuthority({
+        ...base,
+        targetEmployeeId: 'e-2',
+        nextRole: 'OPERATION_ADMIN',
+        nextStatus: 'INACTIVE',
+      }),
       false,
     );
   });
 
   it('allows yourself when the role, status and email are unchanged', () => {
-    assert.equal(editsOwnAuthority({ ...base, nextRole: 'ADMIN', nextStatus: 'ACTIVE' }), false);
+    assert.equal(
+      editsOwnAuthority({ ...base, nextRole: 'ADMIN', nextStatus: 'ACTIVE' }),
+      false,
+    );
   });
 });
 

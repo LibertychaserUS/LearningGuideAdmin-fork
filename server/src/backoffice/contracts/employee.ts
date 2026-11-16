@@ -95,13 +95,11 @@ export function leavesNoActiveAdmin(input: {
     input.currentRole === 'ADMIN' &&
     input.currentStatus === 'ACTIVE' &&
     input.emailVerified;
-  if (!usableNow) return false;
   const staysUsable =
     (input.nextRole ?? input.currentRole) === 'ADMIN' &&
     (input.nextStatus ?? input.currentStatus) === 'ACTIVE' &&
     input.emailVerified;
-  if (staysUsable) return false;
-  return input.otherActiveAdmins === 0;
+  return usableNow && !staysUsable && input.otherActiveAdmins === 0;
 }
 
 /**

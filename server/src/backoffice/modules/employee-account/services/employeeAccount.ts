@@ -266,7 +266,10 @@ export async function updateEmployee(input: {
   // （advisory lock + FOR UPDATE + ACTIVE/VERIFIED 计数），这里只翻译结果。
   let outcome: employeeRepository.UpdateEmployeeOutcome;
   try {
-    outcome = await employeeRepository.updateEmployee(existing.employeeId, patch);
+    outcome = await employeeRepository.updateEmployee(
+      existing.employeeId,
+      patch,
+    );
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, code: 'DUPLICATE_EMAIL' };
     throw error;

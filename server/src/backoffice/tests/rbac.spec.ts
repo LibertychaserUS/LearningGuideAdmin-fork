@@ -142,3 +142,30 @@ describe('settings sub-navigation', () => {
     );
   });
 });
+
+describe('action level robustness', () => {
+  // 守卫的输入来自路由表，但函数是公开的；未知动作必须是 false，而不是抛错。
+  it('returns false for actions outside the enum, including prototype keys', () => {
+    for (const action of [
+      'constructor',
+      'toString',
+      'hasOwnProperty',
+      'NOPE',
+    ]) {
+      assert.equal(
+        isActionAllowed('ADMIN', 'course', action as never),
+        false,
+        action,
+      );
+    }
+  });
+
+  it('VIEW stays true at every level above NONE', () => {
+    assert.equal(isActionAllowed('GRAPHIC_DESIGNER', 'course', 'VIEW'), true);
+    assert.equal(isActionAllowed('FINANCE', 'order', 'VIEW'), true);
+    assert.equal(
+      isActionAllowed('OPERATION_ADMIN', 'knowledge', 'VIEW'),
+      false,
+    );
+  });
+});
