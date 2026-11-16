@@ -90,7 +90,7 @@ export function CourseContentSection({
   const [allReadingsOpen, setAllReadingsOpen] = useState(false);
   const [allImportFile, setAllImportFile] = useState<File | null>(null);
   const [allImportLanguage, setAllImportLanguage] = useState(contentLanguage);
-  const [allImportResult, setAllImportResult] = useState<{ added: number; errors: Array<{ row: number; message: string }>; byLesson?: Record<string, number> } | null>(null);
+  const [allImportResult, setAllImportResult] = useState<{ added: number; errors: Array<{ row: number; message: string }>; byLesson?: Record<string, number>; rowsRead?: number; confirmed?: boolean } | null>(null);
   const [readingImportFile, setReadingImportFile] = useState<File | null>(null);
   const [readingImportResult, setReadingImportResult] = useState<{ added: number; errors: Array<{ row: number; message: string }> } | null>(null);
   const [importBusy, setImportBusy] = useState(false);
@@ -477,21 +477,50 @@ export function CourseContentSection({
     else onNotice(`${L(locale, '排序失败', 'Reorder failed')}: ${result.message ?? result.error}`);
   }
 
+  async function runAllUnderstandingPreview(target: File | null = allImportFile) {
+    if (!target) return;
+    setImportBusy(true);
+    const form = new FormData();
+    form.append('file', target);
+    const result = await boRequest<{ rowsRead: number; added: number; byLesson: Record<string, number>; errors: Array<{ row: number; message: string }> }>(
+      `/api/backoffice/courses/${course.id}/understanding/import/preview?language=${encodeURIComponent(allImportLanguage)}`,
+      { method: 'POST', body: form },
+    );
+    setImportBusy(false);
+    if (result.success) {
+      setAllImportResult({
+        rowsRead: result.data.rowsRead ?? 0,
+        added: result.data.added ?? 0,
+        byLesson: result.data.byLesson ?? {},
+        errors: result.data.errors ?? [],
+        confirmed: false,
+      });
+    } else {
+      setAllImportResult({ added: 0, errors: [{ row: 0, message: result.message ?? result.error }], confirmed: false });
+    }
+  }
+
   async function runAllUnderstandingImport() {
-    if (!allImportFile) return;
+    if (!allImportFile || !allImportResult) return;
     setImportBusy(true);
     const form = new FormData();
     form.append('file', allImportFile);
+    form.append('confirm', 'true');
     const result = await boRequest<{ added: number; byLesson: Record<string, number>; errors: Array<{ row: number; message: string }> }>(
       `/api/backoffice/courses/${course.id}/understanding/import?language=${encodeURIComponent(allImportLanguage)}`,
       { method: 'POST', body: form },
     );
     setImportBusy(false);
     if (result.success) {
-      setAllImportResult({ added: result.data.added, byLesson: result.data.byLesson, errors: result.data.errors ?? [] });
+      setAllImportResult({
+        added: result.data.added,
+        byLesson: result.data.byLesson,
+        errors: result.data.errors ?? [],
+        confirmed: true,
+      });
       if (result.data.added > 0) await onReload();
     } else {
-      setAllImportResult({ added: 0, errors: [{ row: 0, message: result.message ?? result.error }] });
+      setAllImportResult({ added: 0, errors: [{ row: 0, message: result.message ?? result.error }], confirmed: false });
     }
   }
 
@@ -969,13 +998,33 @@ export function CourseContentSection({
             </select>
           </Field>
           <Field label={L(locale, '上传 .xlsx 或 .csv', 'Upload .xlsx or .csv')}>
-            <input type="file" accept=".xlsx,.csv" onChange={(event) => { setAllImportFile(event.target.files?.[0] ?? null); setAllImportResult(null); }} />
+            <input type="file" accept=".xlsx,.csv" onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              setAllImportFile(file);
+              setAllImportResult(null);
+              if (file) void runAllUnderstandingPreview(file);
+            }} />
           </Field>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button type="button" style={primaryBtn} disabled={!allImportFile || importBusy} onClick={() => void runAllUnderstandingImport()}>{importBusy ? L(locale, '导入中…', 'Importing…') : L(locale, '导入', 'Import')}</button>
+            <button type="button" style={primaryBtn} disabled={!allImportResult || allImportResult.confirmed || allImportResult.added === 0 || importBusy} onClick={() => void runAllUnderstandingImport()}>
+              {importBusy
+                ? L(locale, '处理中…', 'Working…')
+                : L(locale, `导入 ${allImportResult?.added ?? 0} 题`, `Import ${allImportResult?.added ?? 0} questions`)}
+            </button>
             <button type="button" style={buttonStyle} onClick={() => window.open(`/api/backoffice/courses/${course.id}/understanding/template`, '_blank')}>{L(locale, '下载模板', 'Download template')}</button>
           </div>
-          {allImportResult && (
+          {allImportResult && !allImportResult.confirmed && (
+            <div style={{ marginTop: 12, fontSize: 13 }}>
+              <p style={{ fontWeight: 600 }}>{L(locale, `读取 ${allImportResult.rowsRead ?? 0} 行，将新增 ${allImportResult.added} 题`, `Read ${allImportResult.rowsRead ?? 0} rows, ${allImportResult.added} questions will be added`)}</p>
+              {allImportResult.byLesson && Object.entries(allImportResult.byLesson).map(([lessonCode, count]) => (
+                <p key={lessonCode}>{lessonCode} · Knowledge Test +{count}</p>
+              ))}
+              {allImportResult.errors.map((error, index) => (
+                <p key={index} style={{ color: '#b42318' }}>{L(locale, '第', 'Row')} {error.row} · {serverText(error.message, locale as Locale)}</p>
+              ))}
+            </div>
+          )}
+          {allImportResult && allImportResult.confirmed && (
             <div style={{ marginTop: 12, fontSize: 13 }}>
               <p style={{ fontWeight: 600 }}>{L(locale, '已导入', 'Imported')} {allImportResult.added} {L(locale, '题', 'questions')}</p>
               {allImportResult.byLesson && Object.entries(allImportResult.byLesson).map(([lessonCode, count]) => (
@@ -984,8 +1033,8 @@ export function CourseContentSection({
               {allImportResult.errors.map((error, index) => (
                 <p key={index} style={{ color: '#b42318' }}>{L(locale, '第', 'Row')} {error.row} · {serverText(error.message, locale as Locale)}</p>
               ))}
-              <button type="button" style={primaryBtn} onClick={() => { setAllUnderstandingOpen(false); setAllImportFile(null); setAllImportResult(null); }} disabled={allImportResult.added === 0}>
-                {L(locale, `导入 ${allImportResult.added} 题`, `Import ${allImportResult.added} questions`)}
+              <button type="button" style={primaryBtn} onClick={() => { setAllUnderstandingOpen(false); setAllImportFile(null); setAllImportResult(null); }}>
+                {L(locale, '完成', 'Done')}
               </button>
             </div>
           )}

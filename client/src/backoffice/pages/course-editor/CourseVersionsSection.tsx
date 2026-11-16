@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { CourseDetail, CourseVersion, HistoryPage } from '../../contracts/course';
 import { boRequest } from '../../lib/api';
@@ -7,7 +7,52 @@ import { Field, Modal } from './shared';
 import { L, buttonStyle, card, dangerBtn, fmtDate, inputStyle, liveStatusLabel, primaryBtn } from './shared-utils';
 import { historyActionLabel, historyDetailText } from './versionHistory';
 
+type VersionWithCreator = CourseVersion & {
+  /** 服务端 listVersions 关联员工后返回的显示名。 */
+  createdByName?: string | null;
+  createdBy?: string | null;
+};
 
+/** PRD §15.5：Published 列显示 发布日期 · 操作人。显示名优先，其次登录邮箱 @ 前的部分。 */
+export function versionOperatorLabel(version: VersionWithCreator): string {
+  const displayName = version.createdByName?.trim();
+  if (displayName) return displayName;
+  const creator = version.createdBy?.trim();
+  if (!creator) return '—';
+  const at = creator.indexOf('@');
+  if (at > 0) return creator.slice(0, at);
+  // 没有可显示的名称时不把内部员工 UUID 当操作人显示。
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(creator)) return '—';
+  return creator;
+}
+
+/** 版本编号方式由环境配置决定（PRD §15.3）：Sandbox 用 X.Y，Production 用 Version N。 */
+export type VersionNumberingMode = 'sandbox' | 'production';
+
+/**
+ * PRD §15.5 Source 列：
+ * - Production：导入显示 Sandbox X.Y，回退显示 Restored from Version N，本地发布显示 —。
+ * - Sandbox：只有导出过的版本显示 Exported + 日期，其余为 —。
+ */
+export function versionSourceLabel(
+  version: CourseVersion,
+  locale: string,
+  mode: VersionNumberingMode,
+): string {
+  if (mode === 'production') {
+    if (version.sourceEnvironment) {
+      return [version.sourceEnvironment, version.sourceVersionLabel].filter(Boolean).join(' ');
+    }
+    if (version.sourceVersionLabel) {
+      return `${L(locale, '恢复自', 'Restored from')} ${version.sourceVersionLabel}`;
+    }
+    return '—';
+  }
+  if (version.exportedAt) {
+    return `${L(locale, '已导出', 'Exported')} ${fmtDate(version.exportedAt, locale)}`;
+  }
+  return '—';
+}
 
 export function CourseVersionsSection({
   locale,
@@ -21,6 +66,7 @@ export function CourseVersionsSection({
   onReload,
   onNotice,
   canPublish = true,
+  versionNumberingMode,
 }: {
   locale: string;
   course: CourseDetail;
@@ -34,6 +80,8 @@ export function CourseVersionsSection({
   onNotice: (message: string) => void;
   /** REQ-0236：发布、删草稿、导入导出、上下线、恢复版本只给 Course=Full。 */
   canPublish?: boolean;
+  /** 测试或调用方可直接指定；未指定时从 /api/backoffice/environment 读取。 */
+  versionNumberingMode?: VersionNumberingMode;
 }) {
   const navigate = useNavigate();
   const [publishOpen, setPublishOpen] = useState(false);
@@ -48,6 +96,22 @@ export function CourseVersionsSection({
   const [importBusy, setImportBusy] = useState(false);
   const [exportVersion, setExportVersion] = useState('live');
   const [exportBusy, setExportBusy] = useState(false);
+  const [fetchedNumberingMode, setFetchedNumberingMode] = useState<VersionNumberingMode>('sandbox');
+
+  useEffect(() => {
+    if (versionNumberingMode) return;
+    let active = true;
+    void boRequest<{ versionNumberingMode?: VersionNumberingMode }>('/api/backoffice/environment').then((result) => {
+      if (active && result.success && result.data.versionNumberingMode) {
+        setFetchedNumberingMode(result.data.versionNumberingMode);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [versionNumberingMode]);
+
+  const numberingMode = versionNumberingMode ?? fetchedNumberingMode;
 
   const liveVersion = versions.find((version) => version.isLive);
   const sortedVersions = [...versions].sort((a, b) => b.versionNo - a.versionNo);
@@ -188,11 +252,16 @@ export function CourseVersionsSection({
     onNotice(L(locale, '导出超时。', 'Export timed out.'));
   }
 
+  // PRD §15.2：空缺 Lesson 用两位序号（Lesson 06），多个 Lesson 并列在同一行。
+  const emptyLessonLabels = course.completeness.steps.content.lessons
+    .map((lesson, index) => ({ lesson, index }))
+    .filter(({ lesson }) => !lesson.studyComplete || !lesson.understandingComplete)
+    .map(({ index }) => `${L(locale, '课时', 'Lesson')} ${String(index + 1).padStart(2, '0')}`);
   const gaps = [
     !course.completeness.steps.courseInformation.complete ? L(locale, '课程信息', 'Course Information') : null,
-    ...course.completeness.steps.content.lessons
-      .filter((lesson) => !lesson.studyComplete || !lesson.understandingComplete)
-      .map((lesson) => `${L(locale, '课程内容', 'Course Content')}: ${L(locale, '课时', 'Lesson')} ${lesson.lessonId}`),
+    emptyLessonLabels.length
+      ? `${L(locale, '课程内容', 'Course Content')}: ${emptyLessonLabels.join(', ')}`
+      : null,
     !course.completeness.steps.trial.complete ? L(locale, '试看设置', 'Trial') : null,
   ].filter(Boolean) as string[];
 
@@ -265,8 +334,8 @@ export function CourseVersionsSection({
             {sortedVersions.map((version) => (
               <tr key={version.id}>
                 <td>{version.versionLabel}{version.isLive ? ` · ${L(locale, '线上', 'Live')}` : ''}</td>
-                <td>{fmtDate(version.wentLiveAt ?? version.createdAt, locale)}</td>
-                <td>{version.sourceVersionLabel ?? version.sourceEnvironment ?? '—'}</td>
+                <td>{fmtDate(version.wentLiveAt ?? version.createdAt, locale)} · {versionOperatorLabel(version)}</td>
+                <td>{versionSourceLabel(version, locale, numberingMode)}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button type="button" style={buttonStyle} onClick={() => navigate(`/${locale}/course/${course.id}/preview?versionId=${version.id}`)}>{L(locale, '查看', 'View')}</button>

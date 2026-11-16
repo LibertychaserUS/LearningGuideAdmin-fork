@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react';
 
 import type { Exhibit } from '../../contracts/course';
 import { Modal } from './shared';
 import { L, buttonStyle, exhibitTypeLabel, inputStyle } from './shared-utils';
 import { pickLocalized } from '../../lib/i18n/localized';
+import { normalizePastedHtml } from './pasteHtml';
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => {
@@ -55,6 +56,47 @@ export function TextEditor({
   function rememberSelection() {
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) rangeRef.current = selection.getRangeAt(0).cloneRange();
+  }
+
+  function insertHtmlAtSelection(html: string) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    if (!selection || !range || !editor.contains(range.commonAncestorContainer)) {
+      editor.insertAdjacentHTML('beforeend', html);
+      return;
+    }
+    range.deleteContents();
+    const fragment = range.createContextualFragment(html);
+    const last = fragment.lastChild;
+    range.insertNode(fragment);
+    if (last) {
+      range.setStartAfter(last);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+
+  /**
+   * 粘贴时把 Google Docs / Word 的“标题 1”样式归一化成 h1（PRD §12.5.2），
+   * 否则从 Google Docs 整篇粘贴后一个学习点都识别不到。
+   */
+  function handlePaste(event: ClipboardEvent<HTMLDivElement>) {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+    const html = clipboard.getData('text/html');
+    const text = clipboard.getData('text/plain');
+    if (!html && !text) return;
+    // 先拦住浏览器默认粘贴，再判断是否插入；否则归一化结果为空时，
+    // 未清洗的原始 HTML 会被浏览器默认行为直接插进编辑器。
+    event.preventDefault();
+    const normalized = normalizePastedHtml(html || text);
+    if (!normalized) return;
+    insertHtmlAtSelection(normalized);
+    onChange(editorRef.current?.innerHTML ?? '');
   }
 
   function insertExhibit(exhibit: Exhibit) {
@@ -117,6 +159,7 @@ export function TextEditor({
         suppressContentEditableWarning
         onInput={(event) => onChange(event.currentTarget.innerHTML)}
         onBlur={() => onChange(editorRef.current?.innerHTML ?? '')}
+        onPaste={handlePaste}
         onKeyUp={rememberSelection}
         onMouseUp={rememberSelection}
         style={{ minHeight: 280, border: '1px solid #E8EDF5', borderRadius: '0 0 10px 10px', padding: 16, background: '#fff', fontSize: 14, lineHeight: 1.55, outline: 'none' }}

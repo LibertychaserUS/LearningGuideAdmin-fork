@@ -8,6 +8,13 @@ import type { Locale } from '../../lib/i18n/config';
 import { serverText } from '../../lib/i18n/serverText';
 
 type Question = { code: string; question: string; referenceAnswer: string };
+type ImportErrors = Array<{ row: number; message: string }>;
+type ImportPreview = {
+  rowsRead: number;
+  added: number;
+  byLesson: Record<string, number>;
+  errors: ImportErrors;
+};
 
 export function UnderstandingPanel({
   locale,
@@ -35,7 +42,8 @@ export function UnderstandingPanel({
   const [applicationAnswer, setApplicationAnswer] = useState(lesson.applicationTest?.referenceAnswer ?? '');
   const [singleImportOpen, setSingleImportOpen] = useState(false);
   const [singleFile, setSingleFile] = useState<File | null>(null);
-  const [singleResult, setSingleResult] = useState<{ added: number; errors: Array<{ row: number; message: string }> } | null>(null);
+  const [singlePreview, setSinglePreview] = useState<ImportPreview | null>(null);
+  const [singleResult, setSingleResult] = useState<{ added: number; errors: ImportErrors } | null>(null);
   const [singleBusy, setSingleBusy] = useState(false);
 
   const [source, setSource] = useState<{ lesson: Lesson; language: string } | null>(null);
@@ -114,18 +122,48 @@ export function UnderstandingPanel({
     }, 0);
   }
 
+  async function runSinglePreview(target: File | null = singleFile) {
+    if (!target) return;
+    setSingleBusy(true);
+    const form = new FormData();
+    form.append('file', target);
+    const result = await boRequest<ImportPreview>(
+      `/api/backoffice/courses/${courseId}/understanding/import/preview?language=${encodeURIComponent(language)}&lessonId=${encodeURIComponent(lesson.id)}`,
+      { method: 'POST', body: form },
+    );
+    setSingleBusy(false);
+    if (result.success) {
+      setSinglePreview({
+        rowsRead: result.data.rowsRead ?? 0,
+        added: result.data.added ?? 0,
+        byLesson: result.data.byLesson ?? {},
+        errors: result.data.errors ?? [],
+      });
+      setSingleResult(null);
+    } else {
+      setSinglePreview({
+        rowsRead: 0,
+        added: 0,
+        byLesson: {},
+        errors: [{ row: 0, message: result.message ?? result.error }],
+      });
+    }
+  }
+
   async function runSingleImport() {
-    if (!singleFile) return;
+    if (!singleFile || !singlePreview) return;
     setSingleBusy(true);
     const form = new FormData();
     form.append('file', singleFile);
-    const result = await boRequest<{ added: number; byLesson: Record<string, number>; errors: Array<{ row: number; message: string }> }>(
+    form.append('confirm', 'true');
+    const result = await boRequest<{ added: number; errors: ImportErrors }>(
       `/api/backoffice/courses/${courseId}/understanding/import?language=${encodeURIComponent(language)}&lessonId=${encodeURIComponent(lesson.id)}`,
       { method: 'POST', body: form },
     );
     setSingleBusy(false);
     if (result.success) {
       setSingleResult({ added: result.data.added, errors: result.data.errors ?? [] });
+      setSinglePreview(null);
       if (result.data.added > 0) await onSaved();
     } else {
       setSingleResult({ added: 0, errors: [{ row: 0, message: result.message ?? result.error }] });
@@ -202,15 +240,36 @@ export function UnderstandingPanel({
       </div>
 
       {singleImportOpen && (
-        <Modal title={L(locale, '导入题目', 'Import questions')} onClose={() => { setSingleImportOpen(false); setSingleFile(null); setSingleResult(null); }}>
+        <Modal title={L(locale, '导入题目', 'Import questions')} onClose={() => { setSingleImportOpen(false); setSingleFile(null); setSinglePreview(null); setSingleResult(null); }}>
           <p style={{ fontSize: 13, color: '#5A6577' }}>{L(locale, '课时', 'Lesson')} {lesson.sortOrder} · {lesson.localizations[0]?.title ?? lesson.code} · {languageLabel(locale, language)}</p>
           <Field label={L(locale, '上传 .xlsx 或 .csv', 'Upload .xlsx or .csv')}>
-            <input type="file" accept=".xlsx,.csv" onChange={(event) => { setSingleFile(event.target.files?.[0] ?? null); setSingleResult(null); }} />
+            <input type="file" accept=".xlsx,.csv" onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              setSingleFile(file);
+              setSinglePreview(null);
+              setSingleResult(null);
+              if (file) void runSinglePreview(file);
+            }} />
           </Field>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button type="button" style={primaryBtn} disabled={!singleFile || singleBusy} onClick={() => void runSingleImport()}>{singleBusy ? L(locale, '导入中…', 'Importing…') : L(locale, '导入', 'Import')}</button>
+            <button type="button" style={primaryBtn} disabled={!singlePreview || singlePreview.added === 0 || singleBusy} onClick={() => void runSingleImport()}>
+              {singleBusy
+                ? L(locale, '处理中…', 'Working…')
+                : L(locale, `导入 ${singlePreview?.added ?? 0} 题`, `Import ${singlePreview?.added ?? 0} questions`)}
+            </button>
             <button type="button" style={buttonStyle} onClick={() => window.open(`/api/backoffice/courses/${courseId}/understanding/template`, '_blank')}>{L(locale, '下载模板', 'Download template')}</button>
           </div>
+          {singlePreview && (
+            <div style={{ marginTop: 12, fontSize: 13 }}>
+              <p style={{ fontWeight: 600 }}>{L(locale, `读取 ${singlePreview.rowsRead} 行，将新增 ${singlePreview.added} 题`, `Read ${singlePreview.rowsRead} rows, ${singlePreview.added} questions will be added`)}</p>
+              {Object.entries(singlePreview.byLesson).map(([lessonCode, count]) => (
+                <p key={lessonCode}>{lessonCode} · +{count}</p>
+              ))}
+              {singlePreview.errors.map((error, index) => (
+                <p key={index} style={{ color: '#b42318' }}>{error.row ? `${L(locale, '第', 'Row')} ${error.row} · ` : ''}{serverText(error.message, locale as Locale)}</p>
+              ))}
+            </div>
+          )}
           {singleResult && (
             <div style={{ marginTop: 12, fontSize: 13 }}>
               <p style={{ fontWeight: 600 }}>{L(locale, '已导入', 'Imported')} {singleResult.added} {L(locale, '题', 'questions')}</p>

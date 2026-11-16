@@ -28,7 +28,8 @@ describe('course editor history formatting', () => {
 
   test('formats status changes with reason', () => {
     const text = historyDetailText(item('CHANGE_STATUS', { from: 'ONLINE', to: 'HIDDEN', reason: 'Reviewing materials' }), 'en-GB')
-    assert.equal(text, 'ONLINE → HIDDEN · Reviewing materials')
+    // PRD §21 使用人类可读状态名（Online / Hidden），不是原始枚举。
+    assert.equal(text, 'Online → Hidden · Reviewing materials')
   })
 
   test('formats restore and delete draft details', () => {

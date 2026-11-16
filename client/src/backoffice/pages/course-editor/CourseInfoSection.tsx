@@ -13,6 +13,62 @@ type Category = { id: string; name: string };
 type LearnRow = { en: string; zh: string };
 type ProvidesRow = { type: string; key?: string; icon?: number; en: string; zh: string };
 
+// PRD §11.2 / §11.3 建议长度（英 / 中）。不设硬性上限：超出只标黄提示，不阻止保存和发布。
+const SUGGESTED_LENGTH = {
+  titleEn: 30,
+  titleZh: 14,
+  shortDescriptionEn: 225,
+  shortDescriptionZh: 100,
+  overviewEn: 650,
+  overviewZh: 380,
+  learnEn: 55,
+  learnZh: 25,
+} as const;
+
+// 提示用黄色，沿用现有 amber Chip 的色值，保证和页面其它"未完成/提示"一致。
+const OVER_LIMIT_TEXT = '#9A6B00';
+const OVER_LIMIT_BORDER = '#E0A800';
+const OVER_LIMIT_BACKGROUND = '#FFFBEB';
+
+function lengthInputStyle(count: number, limit: number): React.CSSProperties {
+  return count > limit
+    ? { ...inputStyle, borderColor: OVER_LIMIT_BORDER, background: OVER_LIMIT_BACKGROUND }
+    : inputStyle;
+}
+
+/** 建议长度计数：超出时数字与提示文案标黄（PRD 原文 "Longer than recommended"）。 */
+function LengthHint({ locale, count, limit }: { locale: string; count: number; limit: number }) {
+  const over = count > limit;
+  return (
+    <div className="fieldHint">
+      <span style={over ? { color: OVER_LIMIT_TEXT } : undefined}>{`${count} / ${limit}`}</span>
+      {over && <span style={{ color: OVER_LIMIT_TEXT }}> · {L(locale, '超过建议长度', 'Longer than recommended')}</span>}
+    </div>
+  );
+}
+
+function LengthField({
+  locale,
+  label,
+  count,
+  limit,
+  children,
+}: {
+  locale: string;
+  label: string;
+  count: number;
+  limit: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="field">
+      <label className="fieldLabel">{label}</label>
+      {children}
+      <LengthHint locale={locale} count={count} limit={limit} />
+    </div>
+  );
+}
+
 const PRESETS = [
   { key: 'VIDEO_TEXT', en: 'Video & text dual-mode learning', zh: '视频与文本双模式学习' },
   { key: 'EXHIBITS', en: 'Multiple reference exhibits', zh: '多个参考展品' },
@@ -421,27 +477,27 @@ export function CourseInfoSection({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginTop: 12 }}>
           <div>
             <label style={labelStyle}>{L(locale, '英文', 'English')}</label>
-            <Field label={L(locale, '课程名称 *', 'Course title *')} hint={`${titleEn.length} / 30`}>
-              <input value={titleEn} onChange={(event) => setTitleEn(event.target.value)} style={inputStyle} />
-            </Field>
-            <Field label={L(locale, '简述 *', 'Short description *')} hint={`${descEn.length} / 225`}>
-              <textarea rows={4} value={descEn} onChange={(event) => setDescEn(event.target.value)} style={inputStyle} />
-            </Field>
-            <Field label={L(locale, '课程概览 *', 'Overview *')} hint={`${overviewEn.length} / 650`}>
-              <textarea rows={7} value={overviewEn} onChange={(event) => setOverviewEn(event.target.value)} style={inputStyle} />
-            </Field>
+            <LengthField locale={locale} label={L(locale, '课程名称 *', 'Course title *')} count={titleEn.length} limit={SUGGESTED_LENGTH.titleEn}>
+              <input value={titleEn} onChange={(event) => setTitleEn(event.target.value)} style={lengthInputStyle(titleEn.length, SUGGESTED_LENGTH.titleEn)} />
+            </LengthField>
+            <LengthField locale={locale} label={L(locale, '简述 *', 'Short description *')} count={descEn.length} limit={SUGGESTED_LENGTH.shortDescriptionEn}>
+              <textarea rows={4} value={descEn} onChange={(event) => setDescEn(event.target.value)} style={lengthInputStyle(descEn.length, SUGGESTED_LENGTH.shortDescriptionEn)} />
+            </LengthField>
+            <LengthField locale={locale} label={L(locale, '课程概览 *', 'Overview *')} count={overviewEn.length} limit={SUGGESTED_LENGTH.overviewEn}>
+              <textarea rows={7} value={overviewEn} onChange={(event) => setOverviewEn(event.target.value)} style={lengthInputStyle(overviewEn.length, SUGGESTED_LENGTH.overviewEn)} />
+            </LengthField>
           </div>
           <div>
             <label style={labelStyle}>{L(locale, '中文', 'Chinese')}</label>
-            <Field label={L(locale, '课程名称 *', 'Course title *')} hint={`${titleZh.length} / 14`}>
-              <input value={titleZh} onChange={(event) => setTitleZh(event.target.value)} style={inputStyle} />
-            </Field>
-            <Field label={L(locale, '简述 *', 'Short description *')} hint={`${descZh.length} / 100`}>
-              <textarea rows={4} value={descZh} onChange={(event) => setDescZh(event.target.value)} style={inputStyle} />
-            </Field>
-            <Field label={L(locale, '课程概览 *', 'Overview *')} hint={`${overviewZh.length} / 380`}>
-              <textarea rows={7} value={overviewZh} onChange={(event) => setOverviewZh(event.target.value)} style={inputStyle} />
-            </Field>
+            <LengthField locale={locale} label={L(locale, '课程名称 *', 'Course title *')} count={titleZh.length} limit={SUGGESTED_LENGTH.titleZh}>
+              <input value={titleZh} onChange={(event) => setTitleZh(event.target.value)} style={lengthInputStyle(titleZh.length, SUGGESTED_LENGTH.titleZh)} />
+            </LengthField>
+            <LengthField locale={locale} label={L(locale, '简述 *', 'Short description *')} count={descZh.length} limit={SUGGESTED_LENGTH.shortDescriptionZh}>
+              <textarea rows={4} value={descZh} onChange={(event) => setDescZh(event.target.value)} style={lengthInputStyle(descZh.length, SUGGESTED_LENGTH.shortDescriptionZh)} />
+            </LengthField>
+            <LengthField locale={locale} label={L(locale, '课程概览 *', 'Overview *')} count={overviewZh.length} limit={SUGGESTED_LENGTH.overviewZh}>
+              <textarea rows={7} value={overviewZh} onChange={(event) => setOverviewZh(event.target.value)} style={lengthInputStyle(overviewZh.length, SUGGESTED_LENGTH.overviewZh)} />
+            </LengthField>
           </div>
         </div>
       </div>
@@ -462,8 +518,14 @@ export function CourseInfoSection({
         {learnRows.map((row, index) => (
           <div key={index} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 1fr 92px', gap: 8, alignItems: 'center', marginTop: 8 }}>
             <span style={{ fontSize: 13 }}>{index + 1}</span>
-            <input ref={index === learnRows.length - 1 ? learnFocus : undefined} value={row.en} onChange={(event) => setLearnRows((rows) => rows.map((item, i) => i === index ? { ...item, en: event.target.value } : item))} style={inputStyle} />
-            <input value={row.zh} onChange={(event) => setLearnRows((rows) => rows.map((item, i) => i === index ? { ...item, zh: event.target.value } : item))} style={inputStyle} />
+            <div>
+              <input ref={index === learnRows.length - 1 ? learnFocus : undefined} value={row.en} onChange={(event) => setLearnRows((rows) => rows.map((item, i) => i === index ? { ...item, en: event.target.value } : item))} style={lengthInputStyle(row.en.length, SUGGESTED_LENGTH.learnEn)} />
+              <LengthHint locale={locale} count={row.en.length} limit={SUGGESTED_LENGTH.learnEn} />
+            </div>
+            <div>
+              <input value={row.zh} onChange={(event) => setLearnRows((rows) => rows.map((item, i) => i === index ? { ...item, zh: event.target.value } : item))} style={lengthInputStyle(row.zh.length, SUGGESTED_LENGTH.learnZh)} />
+              <LengthHint locale={locale} count={row.zh.length} limit={SUGGESTED_LENGTH.learnZh} />
+            </div>
             <div style={{ display: 'flex', gap: 4 }}>
               <button type="button" style={{ ...buttonStyle, padding: '6px 8px' }} onClick={() => moveLearn(index, -1)}>↑</button>
               <button type="button" style={{ ...buttonStyle, padding: '6px 8px' }} onClick={() => moveLearn(index, 1)}>↓</button>
